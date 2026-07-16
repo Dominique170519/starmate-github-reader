@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-type View = "home" | "reader" | "review";
+type View = "home" | "overview" | "reader" | "review";
 
 type Lesson = {
   id: number;
@@ -24,6 +24,23 @@ type StarredRepo = {
   updated_at: string;
 };
 
+type LessonContent = {
+  title: string;
+  eyebrow: string;
+  minutes: number;
+  quote: string;
+  source: string;
+  thesis: string;
+  explanation: string;
+  analogyTitle: string;
+  analogy: string;
+  flow: { title: string; detail: string }[];
+  question: string;
+  answers: string[];
+  correct: number;
+  feedback: string;
+};
+
 const lessons: Lesson[] = [
   { id: 1, title: "为什么要观察 API 请求？", eyebrow: "逆向思路", minutes: 8, status: "done" },
   { id: 2, title: "Claude Code 的 Agent Loop", eyebrow: "核心概念", minutes: 12, status: "current" },
@@ -32,6 +49,37 @@ const lessons: Lesson[] = [
   { id: 5, title: "Todo 与短期记忆", eyebrow: "任务管理", minutes: 8, status: "locked" },
   { id: 6, title: "子 Agent 如何隔离脏上下文", eyebrow: "多 Agent", minutes: 12, status: "locked" },
 ];
+
+const lessonContents: Record<number, LessonContent> = {
+  1: {
+    title: "为什么要观察 API 请求？", eyebrow: "逆向思路", minutes: 8,
+    quote: "先观察真实请求和返回，再根据证据还原系统行为，比只阅读界面更接近产品的工作原理。",
+    source: "claude-code-reverse · 逆向方法",
+    thesis: "观察 API 请求，就像查看系统留下的“行动记录”。",
+    explanation: "界面只能告诉我们用户看见了什么，请求却会暴露模型收到的上下文、工具如何被描述，以及程序怎样把结果送回模型。这些证据能帮助我们把猜测变成可以验证的结论。",
+    analogyTitle: "它像研究餐厅的后厨小票",
+    analogy: "只看端上桌的菜，很难知道制作过程；查看每一张后厨小票，就能看到下单、备料、制作和出餐的先后关系。API 请求就是软件的“小票”。",
+    flow: [{ title: "触发操作", detail: "在界面发起任务" }, { title: "记录请求", detail: "观察输入与工具" }, { title: "对照结果", detail: "验证行为规律" }],
+    question: "为什么不能只看产品界面来理解 Agent？",
+    answers: ["界面隐藏了上下文、工具描述和中间结果", "因为界面的颜色会影响模型", "因为 API 一定比界面运行得更快"],
+    correct: 0,
+    feedback: "界面展示的是结果，API 请求提供了还原工作流程所需的过程证据。",
+  },
+  2: {
+    title: "Claude Code 的 Agent Loop", eyebrow: "核心概念", minutes: 12,
+    quote: "当 context 足够时，会持续在当前 context 中不断 append message。定义 Agent 工作流程的核心流程的是 system workflow prompt。",
+    source: "README.zh_CN.md · 核心 Agent 流程",
+    thesis: "Agent Loop 就是让模型能够“做一步、看结果、再决定下一步”的循环。",
+    explanation: "普通聊天机器人通常回答一次就结束。Coding Agent 不一样：当它发现需要读取文件时，会请求一个工具；程序执行工具后，把文件内容重新交给模型；模型看到新信息，再判断是继续搜索、修改代码，还是结束任务。",
+    analogyTitle: "它更像一位会主动查资料的实习生",
+    analogy: "你说“帮我分析这份报告”。他先打开报告，发现缺少销售数据，于是去查表格；拿到数据后继续分析，最后才向你汇报。每次“行动—获得反馈—继续判断”，就是循环的一轮。",
+    flow: [{ title: "理解任务", detail: "用户想做什么？" }, { title: "调用工具", detail: "读取、搜索、修改" }, { title: "观察结果", detail: "发生了什么？" }],
+    question: "为什么工具执行后，要把结果重新发给模型？",
+    answers: ["为了让模型知道外部世界发生了什么，并继续判断", "因为每次调用工具都必须重新登录", "只是为了把执行记录展示给用户"],
+    correct: 0,
+    feedback: "模型不能直接看到文件或终端。工具结果就是它的新观察，只有放回上下文，模型才能继续推理。",
+  },
+};
 
 const reviewCards = [
   {
@@ -68,6 +116,9 @@ export default function Home() {
   const [syncingStars, setSyncingStars] = useState(false);
   const [starMessage, setStarMessage] = useState("");
   const [savedRepoIds, setSavedRepoIds] = useState<number[]>([]);
+  const [currentLessonId, setCurrentLessonId] = useState(2);
+  const [repoOutlines, setRepoOutlines] = useState<Record<number, string[]>>({});
+  const [outlineLoading, setOutlineLoading] = useState<number | null>(null);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("starmate-lesson-complete");
@@ -75,12 +126,15 @@ export default function Home() {
     setLessonComplete(saved === "true");
     setGithubUser(window.localStorage.getItem("starmate-github-user") || "");
     setSavedRepoIds(JSON.parse(window.localStorage.getItem("starmate-saved-repos") || "[]"));
+    setStarredRepos(JSON.parse(window.localStorage.getItem("starmate-starred-repos") || "[]"));
     /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
 
   const completedCount = lessonComplete ? 2 : 1;
   const progress = Math.round((completedCount / lessons.length) * 100);
   const currentCard = reviewCards[cardIndex];
+  const currentLesson = lessonContents[currentLessonId] || lessonContents[2];
+  const graphRepos = starredRepos.filter((repo) => savedRepoIds.includes(repo.id)).slice(0, 4);
 
   const repoName = useMemo(() => {
     try {
@@ -135,6 +189,7 @@ export default function Home() {
       if (!response.ok) throw new Error("同步失败，请稍后再试");
       const repos = (await response.json()) as StarredRepo[];
       setStarredRepos(repos);
+      window.localStorage.setItem("starmate-starred-repos", JSON.stringify(repos));
       window.localStorage.setItem("starmate-github-user", username);
       setStarMessage(repos.length ? `已同步 ${repos.length} 个最近收藏的仓库` : "这个账号还没有公开收藏的仓库");
     } catch (error) {
@@ -153,6 +208,35 @@ export default function Home() {
     });
   }
 
+  function openLesson(id: number) {
+    if (!lessonContents[id]) return;
+    setCurrentLessonId(id);
+    setSelectedAnswer(null);
+    setView("reader");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function loadRepoOutline(repo: StarredRepo) {
+    if (repoOutlines[repo.id]) {
+      setRepoOutlines((current) => ({ ...current, [repo.id]: [] }));
+      return;
+    }
+    setOutlineLoading(repo.id);
+    try {
+      const response = await fetch(`https://api.github.com/repos/${repo.full_name}/readme`, { headers: { Accept: "application/vnd.github+json" } });
+      if (!response.ok) throw new Error();
+      const data = (await response.json()) as { content: string };
+      const bytes = Uint8Array.from(atob(data.content.replace(/\n/g, "")), (character) => character.charCodeAt(0));
+      const markdown = new TextDecoder().decode(bytes);
+      const headings = markdown.split("\n").map((line) => line.match(/^#{1,4}\s+(.+?)\s*#*$/)?.[1]?.trim()).filter((heading): heading is string => Boolean(heading)).slice(0, 12);
+      setRepoOutlines((current) => ({ ...current, [repo.id]: headings.length ? headings : ["项目简介", "核心能力", "安装与使用", "延伸阅读"] }));
+    } catch {
+      setRepoOutlines((current) => ({ ...current, [repo.id]: ["项目简介", "核心概念", "使用方法", "进一步探索"] }));
+    } finally {
+      setOutlineLoading(null);
+    }
+  }
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -163,6 +247,7 @@ export default function Home() {
         </button>
         <nav className="desktop-nav" aria-label="主导航">
           <button className={view === "home" ? "active" : ""} onClick={() => setView("home")}>学习台</button>
+          <button className={view === "overview" ? "active" : ""} onClick={() => setView("overview")}>全局地图</button>
           <button className={view === "reader" ? "active" : ""} onClick={() => setView("reader")}>伴读</button>
           <button className={view === "review" ? "active" : ""} onClick={() => setView("review")}>复习</button>
         </nav>
@@ -232,8 +317,10 @@ export default function Home() {
                         <p>{repo.description || "这个仓库还没有简介，可以打开 README 进一步了解。"}</p>
                         <div className="repo-card-actions">
                           <a href={repo.html_url} target="_blank" rel="noreferrer">查看原文 ↗</a>
+                          <button onClick={() => loadRepoOutline(repo)}>{outlineLoading === repo.id ? "拆解中…" : repoOutlines[repo.id] ? "收起大纲" : "拆解大纲"}</button>
                           <button className={saved ? "saved" : ""} onClick={() => toggleSavedRepo(repo.id)}>{saved ? "✓ 已加入" : "+ 加入伴读"}</button>
                         </div>
+                        {repoOutlines[repo.id]?.length > 0 && <ol className="repo-outline">{repoOutlines[repo.id].map((heading, index) => <li key={`${heading}-${index}`}><span>{String(index + 1).padStart(2, "0")}</span>{heading}</li>)}</ol>}
                       </article>
                     );
                   })}
@@ -252,7 +339,7 @@ export default function Home() {
                 <div className="progress-copy"><span>学习进度</span><strong>{progress}%</strong></div>
                 <div className="progress-track"><span style={{ width: `${progress}%` }}></span></div>
               </div>
-              <button className="current-lesson" onClick={() => setView("reader")}>
+              <button className="current-lesson" onClick={() => openLesson(2)}>
                 <span className="lesson-number">02</span>
                 <span className="lesson-info"><small>下一节 · 约 12 分钟</small><strong>Claude Code 的 Agent Loop</strong></span>
                 <span className="play-button">→</span>
@@ -275,10 +362,59 @@ export default function Home() {
           <section className="how-section">
             <div className="section-heading"><div><p className="overline">伴读不是总结</p><h2>每一步，都让你更接近“真正理解”</h2></div></div>
             <div className="feature-row">
-              <div className="feature-card"><span>01</span><div className="feature-symbol coral">◎</div><h3>先看全局地图</h3><p>知道为什么读、先学什么，不在文件树里迷路。</p></div>
-              <div className="feature-card"><span>02</span><div className="feature-symbol purple">≋</div><h3>一次讲透一点</h3><p>原文、小白解释和生活类比放在一起。</p></div>
-              <div className="feature-card"><span>03</span><div className="feature-symbol yellow">?</div><h3>提问检查理解</h3><p>答错就换一种说法，答对再逐步加深。</p></div>
-              <div className="feature-card"><span>04</span><div className="feature-symbol green">↗</div><h3>在遗忘前复习</h3><p>根据你的掌握度，安排真正需要的回忆题。</p></div>
+              <button className="feature-card" onClick={() => setView("overview")}><span>01</span><div className="feature-symbol coral">◎</div><h3>先看全局地图</h3><p>先看重点、知识关系和完整大纲，再决定从哪里开始。</p><b>打开地图 →</b></button>
+              <button className="feature-card" onClick={() => openLesson(2)}><span>02</span><div className="feature-symbol purple">≋</div><h3>一次讲透一点</h3><p>原文、小白解释和生活类比放在一起。</p><b>进入伴读 →</b></button>
+              <button className="feature-card" onClick={() => openLesson(1)}><span>03</span><div className="feature-symbol yellow">?</div><h3>提问检查理解</h3><p>答错就换一种说法，答对再逐步加深。</p><b>试一道题 →</b></button>
+              <button className="feature-card" onClick={() => setView("review")}><span>04</span><div className="feature-symbol green">↗</div><h3>在遗忘前复习</h3><p>根据你的掌握度，安排真正需要的回忆题。</p><b>开始复习 →</b></button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {view === "overview" && (
+        <div className="page overview-page">
+          <button className="back-link" onClick={() => setView("home")}>← 返回学习台</button>
+          <header className="overview-hero">
+            <div><p className="kicker">先总览，再深入</p><h1>Claude Code<br /><em>全局学习地图</em></h1></div>
+            <p>这门课不是六篇互不相干的笔记。它围绕一条主线展开：Agent 如何观察环境、循环行动、管理记忆，并在复杂任务中保持方向。</p>
+          </header>
+
+          <section className="takeaway-grid">
+            <article><span>01</span><strong>核心机制</strong><p>Agent Loop 让模型能调用工具、观察结果，再决定下一步。</p></article>
+            <article><span>02</span><strong>关键限制</strong><p>上下文会持续增长，因此需要 Compact、Todo 和子 Agent 管理信息。</p></article>
+            <article><span>03</span><strong>阅读目标</strong><p>最终能用“输入—行动—观察—记忆”解释一个 Coding Agent。</p></article>
+          </section>
+
+          <section className="map-section">
+            <div className="map-copy"><p className="overline">知识图谱</p><h2>文档不是孤岛，它们共同解释一个系统</h2><p>连线表示“为下一个概念提供基础”。你收藏并加入伴读的仓库，也会出现在资料节点中。</p></div>
+            <div className="knowledge-graph" aria-label="Claude Code 知识关系图">
+              <div className="graph-row graph-sources">
+                {(graphRepos.length ? graphRepos : [
+                  { id: -1, full_name: "how-claude-code-works" },
+                  { id: -2, full_name: "claude-code-from-scratch" },
+                  { id: -3, full_name: "claude-code-reverse" },
+                ]).map((repo) => <div className="graph-node source-node" key={repo.id}><small>资料</small><strong>{repo.full_name.split("/").pop()}</strong></div>)}
+              </div>
+              <div className="graph-connector">↓ 提供证据与实现细节</div>
+              <div className="graph-row graph-concepts">
+                <div className="graph-node"><small>观察</small><strong>API 请求</strong></div><b>→</b>
+                <div className="graph-node core"><small>行动</small><strong>Agent Loop</strong></div><b>→</b>
+                <div className="graph-node"><small>记忆</small><strong>Context</strong></div><b>→</b>
+                <div className="graph-node"><small>治理</small><strong>Compact / Todo</strong></div>
+              </div>
+            </div>
+          </section>
+
+          <section className="outline-section">
+            <div className="section-heading"><div><p className="overline">完整课程大纲</p><h2>先知道每一节解决什么问题</h2></div><span>共 6 节 · 约 59 分钟</span></div>
+            <div className="course-outline">
+              {lessons.map((lesson, index) => (
+                <button key={lesson.id} onClick={() => openLesson(lesson.id)} disabled={!lessonContents[lesson.id]}>
+                  <span>{String(lesson.id).padStart(2, "0")}</span>
+                  <div><small>{index < 2 ? "第一章 · 看懂 Agent 如何行动" : index < 4 ? "第二章 · 理解上下文与记忆" : "第三章 · 管理复杂任务"}</small><strong>{lesson.title}</strong><p>{["从真实请求找到逆向分析的证据。", "理解调用工具与观察结果的循环。", "看懂消息为什么越积越多。", "理解压缩如何保留目标与进度。", "看懂任务列表怎样维持短期方向。", "理解隔离上下文为什么能降低干扰。"][index]}</p></div>
+                  <b>{lessonContents[lesson.id] ? "开始阅读 →" : "即将开放"}</b>
+                </button>
+              ))}
             </div>
           </section>
         </div>
@@ -295,7 +431,7 @@ export default function Home() {
               {lessons.map((lesson) => {
                 const done = lesson.id === 2 ? lessonComplete : lesson.status === "done";
                 return (
-                  <button key={lesson.id} className={`lesson-item ${lesson.id === 2 ? "selected" : ""}`} disabled={lesson.status === "locked" && !done}>
+                  <button key={lesson.id} className={`lesson-item ${lesson.id === currentLessonId ? "selected" : ""}`} disabled={!lessonContents[lesson.id]} onClick={() => openLesson(lesson.id)}>
                     <span>{done ? "✓" : String(lesson.id).padStart(2, "0")}</span>
                     <div><small>{lesson.eyebrow} · {lesson.minutes} 分钟</small><strong>{lesson.title}</strong></div>
                   </button>
@@ -306,39 +442,37 @@ export default function Home() {
 
           <article className="reading-pane">
             <div className="reading-header">
-              <div><p className="kicker">第 2 节 · 核心概念</p><h1>Claude Code 的 Agent Loop</h1></div>
-              <span className="reading-time">约 12 分钟</span>
+              <div><p className="kicker">第 {currentLessonId} 节 · {currentLesson.eyebrow}</p><h1>{currentLesson.title}</h1></div>
+              <span className="reading-time">约 {currentLesson.minutes} 分钟</span>
             </div>
 
             <div className="source-card">
               <div className="source-label"><span>原文说</span><a href="https://github.com/Yuyz0112/claude-code-reverse" target="_blank" rel="noreferrer">查看 GitHub ↗</a></div>
-              <blockquote>当 context 足够时，会持续在当前 context 中不断 append message。定义 Agent 工作流程的核心流程的是 system workflow prompt。</blockquote>
-              <p>来源：README.zh_CN.md · 核心 Agent 流程</p>
+              <blockquote>{currentLesson.quote}</blockquote>
+              <p>来源：{currentLesson.source}</p>
             </div>
 
             <section className="explain-section">
               <p className="overline">先用一句话理解</p>
-              <h2>Agent Loop 就是让模型能够“做一步、看结果、再决定下一步”的循环。</h2>
-              <p>普通聊天机器人通常回答一次就结束。Coding Agent 不一样：当它发现需要读取文件时，会请求一个工具；程序执行工具后，把文件内容重新交给模型；模型看到新信息，再判断是继续搜索、修改代码，还是结束任务。</p>
+              <h2>{currentLesson.thesis}</h2>
+              <p>{currentLesson.explanation}</p>
               <div className="loop-diagram" aria-label="Agent Loop 流程图">
-                <div><span>1</span><strong>理解任务</strong><small>用户想做什么？</small></div><b>→</b>
-                <div><span>2</span><strong>调用工具</strong><small>读取、搜索、修改</small></div><b>→</b>
-                <div><span>3</span><strong>观察结果</strong><small>发生了什么？</small></div><b>↻</b>
+                {currentLesson.flow.map((step, index) => <div key={step.title}><span>{index + 1}</span><strong>{step.title}</strong><small>{step.detail}</small></div>)}
               </div>
             </section>
 
             <aside className="analogy-card">
               <span className="analogy-emoji">☕</span>
-              <div><p className="overline">换个生活中的例子</p><h3>它更像一位会主动查资料的实习生</h3><p>你说“帮我分析这份报告”。他先打开报告，发现缺少销售数据，于是去查表格；拿到数据后继续分析，最后才向你汇报。每次“行动—获得反馈—继续判断”，就是循环的一轮。</p></div>
+              <div><p className="overline">换个生活中的例子</p><h3>{currentLesson.analogyTitle}</h3><p>{currentLesson.analogy}</p></div>
             </aside>
 
             <section className="checkpoint">
-              <div className="checkpoint-title"><span>?</span><div><p className="overline">理解检查</p><h2>为什么工具执行后，要把结果重新发给模型？</h2></div></div>
+              <div className="checkpoint-title"><span>?</span><div><p className="overline">理解检查</p><h2>{currentLesson.question}</h2></div></div>
               <div className="answers">
-                {["为了让模型知道外部世界发生了什么，并继续判断", "因为每次调用工具都必须重新登录", "只是为了把执行记录展示给用户"].map((answer, index) => (
+                {currentLesson.answers.map((answer, index) => (
                   <button
                     key={answer}
-                    className={`${selectedAnswer === index ? "chosen" : ""} ${selectedAnswer !== null && index === 0 ? "correct" : ""}`}
+                    className={`${selectedAnswer === index ? "chosen" : ""} ${selectedAnswer !== null && index === currentLesson.correct ? "correct" : ""}`}
                     onClick={() => setSelectedAnswer(index)}
                   >
                     <span>{String.fromCharCode(65 + index)}</span>{answer}
@@ -346,16 +480,17 @@ export default function Home() {
                 ))}
               </div>
               {selectedAnswer !== null && (
-                <div className={`feedback ${selectedAnswer === 0 ? "good" : "retry"}`}>
-                  <strong>{selectedAnswer === 0 ? "答对了！" : "再想一步"}</strong>
-                  <p>{selectedAnswer === 0 ? "模型不能直接看到文件或终端。工具结果就是它的新观察，只有放回上下文，模型才能继续推理。" : "模型无法直接观察电脑中的变化。想想它怎样才能知道刚才读取到了什么。"}</p>
+                <div className={`feedback ${selectedAnswer === currentLesson.correct ? "good" : "retry"}`}>
+                  <strong>{selectedAnswer === currentLesson.correct ? "答对了！" : "再想一步"}</strong>
+                  <p>{selectedAnswer === currentLesson.correct ? currentLesson.feedback : "回到上面的“一句话理解”，找出界面背后真正缺少的那部分信息。"}</p>
                 </div>
               )}
             </section>
 
-            <button className="finish-button" onClick={finishLesson} disabled={lessonComplete}>
-              {lessonComplete ? "✓ 本节已完成" : "我理解了，完成本节"}
-            </button>
+            <div className="lesson-navigation">
+              <button onClick={() => openLesson(currentLessonId - 1)} disabled={!lessonContents[currentLessonId - 1]}>← 上一节</button>
+              {currentLessonId === 2 ? <button className="finish-button" onClick={finishLesson} disabled={lessonComplete}>{lessonComplete ? "✓ 本节已完成" : "我理解了，完成本节"}</button> : <button className="finish-button" onClick={() => openLesson(2)}>下一节：Agent Loop →</button>}
+            </div>
           </article>
 
           <aside className="mentor-panel">
@@ -397,7 +532,7 @@ export default function Home() {
       )}
 
       <nav className="mobile-nav" aria-label="手机导航">
-        <button className={view === "home" ? "active" : ""} onClick={() => setView("home")}><span>⌂</span>学习台</button>
+        <button className={view === "home" || view === "overview" ? "active" : ""} onClick={() => setView("home")}><span>⌂</span>学习台</button>
         <button className={view === "reader" ? "active" : ""} onClick={() => setView("reader")}><span>▤</span>伴读</button>
         <button className={view === "review" ? "active" : ""} onClick={() => setView("review")}><span>↻</span>复习</button>
       </nav>
