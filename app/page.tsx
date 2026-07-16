@@ -50,8 +50,12 @@ type MentorMessage = {
   content: string;
   quote?: string;
   source?: string;
+  pending?: boolean;
+  error?: boolean;
   check?: { question: string; options: string[]; correct: number; feedback: string };
 };
+
+type MentorStatus = "checking" | "ready" | "unconfigured" | "error";
 
 const lessons: Lesson[] = [
   { id: 1, title: "为什么要观察 API 请求？", eyebrow: "逆向思路", minutes: 8, status: "done" },
@@ -332,6 +336,8 @@ export default function Home() {
   const [companionTab, setCompanionTab] = useState<"mentor" | "notes">("mentor");
   const [noteText, setNoteText] = useState("");
   const [mentorQuestion, setMentorQuestion] = useState("");
+  const [mentorLoading, setMentorLoading] = useState(false);
+  const [mentorStatus, setMentorStatus] = useState<MentorStatus>("checking");
   const [selectedText, setSelectedText] = useState("");
   const [mentorCheckChoice, setMentorCheckChoice] = useState<number | null>(null);
   const [mentorMessages, setMentorMessages] = useState<MentorMessage[]>([{ id: 1, role: "teacher", title: "开始伴读", content: "我会跟随你当前阅读的文章和章节。选中一段原文，或直接告诉我哪里没看懂。" }]);
@@ -347,6 +353,18 @@ export default function Home() {
     setSavedRepoIds(JSON.parse(window.localStorage.getItem("starmate-saved-repos") || "[]"));
     setStarredRepos(JSON.parse(window.localStorage.getItem("starmate-starred-repos") || "[]"));
     /* eslint-enable react-hooks/set-state-in-effect */
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/mentor", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error();
+        const result = (await response.json()) as { configured?: boolean };
+        if (!cancelled) setMentorStatus(result.configured ? "ready" : "unconfigured");
+      })
+      .catch(() => { if (!cancelled) setMentorStatus("error"); });
+    return () => { cancelled = true; };
   }, []);
 
   const completedCount = lessonComplete ? 2 : 1;
@@ -499,32 +517,88 @@ export default function Home() {
     setMobileReaderSurface("notes");
   }
 
-  function askMentor(question = mentorQuestion, action: "explain" | "example" | "guide" | "check" | "ask" = "ask") {
+  async function askMentor(question = mentorQuestion, action: "explain" | "example" | "guide" | "check" | "ask" = "ask") {
+    if (mentorLoading) return;
     const prompt = question.trim() || (selectedText ? "请解释我选中的这段原文" : "请带我理解当前章节");
     const id = mentorMessageId.current;
     mentorMessageId.current += 2;
-    const replies = {
+    const fallbackReplies = {
       explain: `${currentGuide.thesis}${currentGuide.explanation}`,
       example: `${currentGuide.analogyTitle}：${currentGuide.analogy}`,
       guide: `先别急着记术语。请先回答：${currentGuide.question} 然后回到原文，找出支持你答案的句子。`,
       check: `先不要回看原文，试着回答关于「${currentGuide.title}」的问题。选完后再回到当前章节确认。`,
       ask: prompt.includes("简单") ? currentGuide.thesis : `我会按「${currentGuide.eyebrow}」来回答。先看当前章节要解决的问题，再用原文证据解释；当前最值得关注的是：${currentGuide.keyPoints[0]}`,
     };
-    const teacher: MentorMessage = { id: id + 1, role: "teacher", title: action === "check" ? "理解检查" : action === "example" ? "换个例子" : action === "guide" ? "苏格拉底引导" : "小白解释", content: replies[action], quote: selectedText || undefined, source: currentGuide.source, check: action === "check" ? { question: currentGuide.question, options: currentGuide.answers, correct: currentGuide.correct, feedback: currentGuide.feedback } : undefined };
-    setMentorMessages((messages) => [...messages, { id, role: "user", content: prompt }, teacher]);
+    const title = action === "check" ? "理解检查" : action === "example" ? "换个例子" : action === "guide" ? "苏格拉底引导" : "小白解释";
+    const pendingTeacher: MentorMessage = { id: id + 1, role: "teacher", title: "GPT 正在思考", content: "正在结合当前文章、章节和选中原文组织回答…", pending: true };
+    const recentHistory = mentorMessages.slice(-6).map(({ role, content }) => ({ role, content }));
+    setMentorMessages((messages) => [...messages, { id, role: "user", content: prompt }, pendingTeacher]);
     setMentorCheckChoice(null);
     setMentorQuestion("");
     setCompanionTab("mentor");
+    setMentorLoading(true);
+
+    try {
+      const response = await fetch("/api/mentor", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action,
+          question: prompt,
+          document: { name: activeDocument.name, owner: activeDocument.owner },
+          section: {
+            title: currentSectionTitle,
+            source: currentGuide.source,
+            quote: currentGuide.quote,
+            thesis: currentGuide.thesis,
+            explanation: currentGuide.explanation,
+            keyPoints: currentGuide.keyPoints,
+          },
+          selectedText,
+          note: prompt.includes("笔记") ? noteText : "",
+          history: recentHistory,
+        }),
+      });
+      const result = (await response.json()) as { answer?: string; error?: string; code?: string };
+      if (!response.ok || !result.answer) throw Object.assign(new Error(result.error || "模型没有返回内容"), { code: result.code });
+
+      setMentorStatus("ready");
+      setMentorMessages((messages) => messages.map((message) => message.id === id + 1 ? {
+        ...message,
+        title,
+        content: result.answer || "",
+        quote: selectedText || undefined,
+        source: currentGuide.source,
+        pending: false,
+        check: action === "check" ? { question: currentGuide.question, options: currentGuide.answers, correct: currentGuide.correct, feedback: currentGuide.feedback } : undefined,
+      } : message));
+    } catch (error) {
+      const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
+      const unconfigured = code === "MODEL_NOT_CONFIGURED";
+      setMentorStatus(unconfigured ? "unconfigured" : "error");
+      setMentorMessages((messages) => messages.map((message) => message.id === id + 1 ? {
+        ...message,
+        title: unconfigured ? "本地讲解 · GPT 待启用" : "本地讲解 · GPT 暂时不可用",
+        content: `${fallbackReplies[action]}\n\n${unconfigured ? "真实模型接口已经接好，服务端配置 API Key 后会自动切换为 GPT 回答。" : "这次模型请求没有成功，先用当前章节生成的本地讲解继续阅读。"}`,
+        quote: selectedText || undefined,
+        source: currentGuide.source,
+        pending: false,
+        error: true,
+        check: action === "check" ? { question: currentGuide.question, options: currentGuide.answers, correct: currentGuide.correct, feedback: currentGuide.feedback } : undefined,
+      } : message));
+    } finally {
+      setMentorLoading(false);
+    }
   }
 
   function renderMentorWorkspace() {
     return <>
-      <div className="mentor-heading"><span className="mentor-avatar">✦</span><div><strong>伴读老师</strong><small>框架模式 · 围绕当前原文</small></div></div>
+      <div className="mentor-heading"><span className="mentor-avatar">✦</span><div><strong>伴读老师</strong><small className={`mentor-model-status ${mentorStatus}`}>{mentorLoading ? "gpt-5.4-mini · 正在生成" : mentorStatus === "ready" ? "gpt-5.4-mini · 已连接" : mentorStatus === "unconfigured" ? "gpt-5.4-mini · 等待密钥" : mentorStatus === "checking" ? "正在检查模型连接" : "模型连接暂时异常"}</small></div></div>
       <div className="mentor-context"><span>当前上下文</span><strong>{activeDocument.name}</strong><small>{currentSectionTitle}</small>{selectedText && <><blockquote>“{selectedText.slice(0, 120)}{selectedText.length > 120 ? "…" : ""}”</blockquote><button onClick={() => addToNotes()}>+ 加入笔记</button></>}</div>
-      <div className="mentor-conversation">{mentorMessages.map((message) => <article className={`mentor-bubble ${message.role}`} key={message.id}>{message.title && <strong>{message.title}</strong>}{message.quote && <blockquote>“{message.quote.slice(0, 110)}{message.quote.length > 110 ? "…" : ""}”</blockquote>}<p>{message.content}</p>{message.source && <small>依据：{message.source}</small>}{message.check && <div className="mentor-check"><b>{message.check.question}</b>{message.check.options.map((option, index) => <button className={mentorCheckChoice === index ? (index === message.check?.correct ? "correct" : "wrong") : ""} key={option} onClick={() => setMentorCheckChoice(index)}>{String.fromCharCode(65 + index)}. {option}</button>)}{mentorCheckChoice !== null && <em>{mentorCheckChoice === message.check.correct ? `回答正确：${message.check.feedback}` : "再想一步：回到这一节的核心问题，区分原文证据与无关细节。"}</em>}</div>}</article>)}</div>
-      <div className="mentor-actions"><button onClick={() => askMentor("解释当前内容", "explain")}><span>译</span>小白解释</button><button onClick={() => askMentor("通过提问引导我", "guide")}><span>问</span>引导思考</button><button onClick={() => askMentor("举一个容易理解的例子", "example")}><span>例</span>举个例子</button><button onClick={() => askMentor("检查我是否理解", "check")}><span>测</span>理解检查</button></div>
-      <div className="mentor-input"><input aria-label="向伴读老师提问" value={mentorQuestion} onChange={(event) => setMentorQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") askMentor(); }} placeholder="围绕当前章节提问…" /><button aria-label="发送问题" onClick={() => askMentor()}>↑</button></div>
-      <p className="grounding-note">未来接入真实模型时，将发送当前文章、章节、选中原文和最近对话</p>
+      <div className="mentor-conversation" aria-live="polite">{mentorMessages.map((message) => <article className={`mentor-bubble ${message.role} ${message.pending ? "pending" : ""} ${message.error ? "error" : ""}`} key={message.id}>{message.title && <strong>{message.title}</strong>}{message.quote && <blockquote>“{message.quote.slice(0, 110)}{message.quote.length > 110 ? "…" : ""}”</blockquote>}<p>{message.content}</p>{message.source && <small>依据：{message.source}</small>}{message.check && <div className="mentor-check"><b>{message.check.question}</b>{message.check.options.map((option, index) => <button className={mentorCheckChoice === index ? (index === message.check?.correct ? "correct" : "wrong") : ""} key={option} onClick={() => setMentorCheckChoice(index)}>{String.fromCharCode(65 + index)}. {option}</button>)}{mentorCheckChoice !== null && <em>{mentorCheckChoice === message.check.correct ? `回答正确：${message.check.feedback}` : "再想一步：回到这一节的核心问题，区分原文证据与无关细节。"}</em>}</div>}</article>)}</div>
+      <div className="mentor-actions"><button disabled={mentorLoading} onClick={() => askMentor("解释当前内容", "explain")}><span>译</span>小白解释</button><button disabled={mentorLoading} onClick={() => askMentor("通过提问引导我", "guide")}><span>问</span>引导思考</button><button disabled={mentorLoading} onClick={() => askMentor("举一个容易理解的例子", "example")}><span>例</span>举个例子</button><button disabled={mentorLoading} onClick={() => askMentor("检查我是否理解", "check")}><span>测</span>理解检查</button></div>
+      <div className="mentor-input"><input disabled={mentorLoading} aria-label="向伴读老师提问" value={mentorQuestion} onChange={(event) => setMentorQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !mentorLoading) askMentor(); }} placeholder={mentorLoading ? "GPT 正在回答…" : "围绕当前章节提问…"} /><button disabled={mentorLoading} aria-label="发送问题" onClick={() => askMentor()}>{mentorLoading ? "…" : "↑"}</button></div>
+      <p className="grounding-note">只发送当前文章、章节、选中原文与最近对话；API Key 始终留在服务端</p>
     </>;
   }
 
