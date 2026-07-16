@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 type View = "home" | "overview" | "reader" | "review";
+type OverviewMode = "documents" | "topic" | "graph";
 
 type Lesson = {
   id: number;
@@ -48,6 +49,36 @@ const lessons: Lesson[] = [
   { id: 4, title: "Compact 为什么像存档点", eyebrow: "记忆管理", minutes: 9, status: "locked" },
   { id: 5, title: "Todo 与短期记忆", eyebrow: "任务管理", minutes: 8, status: "locked" },
   { id: 6, title: "子 Agent 如何隔离脏上下文", eyebrow: "多 Agent", minutes: 12, status: "locked" },
+];
+
+const sourceDocuments = [
+  {
+    name: "how-claude-code-works",
+    owner: "Windy3f3f3f3f",
+    role: "入门解释",
+    summary: "从产品视角解释 Claude Code 的整体运行方式，适合先建立直觉。",
+    concepts: ["整体架构", "Agent Loop", "工具调用"],
+    outline: ["Claude Code 是什么", "一次任务如何运行", "工具如何参与", "上下文如何变化"],
+    url: "https://github.com/Windy3f3f3f3f/how-claude-code-works",
+  },
+  {
+    name: "claude-code-from-scratch",
+    owner: "Windy3f3f3f3f",
+    role: "实现案例",
+    summary: "通过从零实现一个简化版本，把抽象机制落实到代码结构。",
+    concepts: ["最小实现", "Agent Loop", "消息结构"],
+    outline: ["最小 Agent 结构", "发送模型请求", "定义与执行工具", "循环与结束条件"],
+    url: "https://github.com/Windy3f3f3f3f/claude-code-from-scratch",
+  },
+  {
+    name: "claude-code-reverse",
+    owner: "Yuyz0112",
+    role: "逆向证据",
+    summary: "从真实请求和行为还原 Claude Code，补充上下文与记忆管理细节。",
+    concepts: ["API 请求", "Context", "Compact", "Todo"],
+    outline: ["逆向方法", "核心 Agent 流程", "Context 增长", "Compact 与 Todo", "子 Agent"],
+    url: "https://github.com/Yuyz0112/claude-code-reverse",
+  },
 ];
 
 const lessonContents: Record<number, LessonContent> = {
@@ -119,6 +150,7 @@ export default function Home() {
   const [currentLessonId, setCurrentLessonId] = useState(2);
   const [repoOutlines, setRepoOutlines] = useState<Record<number, string[]>>({});
   const [outlineLoading, setOutlineLoading] = useState<number | null>(null);
+  const [overviewMode, setOverviewMode] = useState<OverviewMode>("documents");
 
   useEffect(() => {
     const saved = window.localStorage.getItem("starmate-lesson-complete");
@@ -385,38 +417,57 @@ export default function Home() {
             <article><span>03</span><strong>阅读目标</strong><p>最终能用“输入—行动—观察—记忆”解释一个 Coding Agent。</p></article>
           </section>
 
-          <section className="map-section">
-            <div className="map-copy"><p className="overline">知识图谱</p><h2>文档不是孤岛，它们共同解释一个系统</h2><p>连线表示“为下一个概念提供基础”。你收藏并加入伴读的仓库，也会出现在资料节点中。</p></div>
-            <div className="knowledge-graph" aria-label="Claude Code 知识关系图">
-              <div className="graph-row graph-sources">
-                {(graphRepos.length ? graphRepos : [
-                  { id: -1, full_name: "how-claude-code-works" },
-                  { id: -2, full_name: "claude-code-from-scratch" },
-                  { id: -3, full_name: "claude-code-reverse" },
-                ]).map((repo) => <div className="graph-node source-node" key={repo.id}><small>资料</small><strong>{repo.full_name.split("/").pop()}</strong></div>)}
-              </div>
-              <div className="graph-connector">↓ 提供证据与实现细节</div>
-              <div className="graph-row graph-concepts">
-                <div className="graph-node"><small>观察</small><strong>API 请求</strong></div><b>→</b>
-                <div className="graph-node core"><small>行动</small><strong>Agent Loop</strong></div><b>→</b>
-                <div className="graph-node"><small>记忆</small><strong>Context</strong></div><b>→</b>
-                <div className="graph-node"><small>治理</small><strong>Compact / Todo</strong></div>
-              </div>
-            </div>
-          </section>
+          <nav className="overview-modes" aria-label="学习方式">
+            <button className={overviewMode === "documents" ? "active" : ""} onClick={() => setOverviewMode("documents")}><span>01</span><strong>按文档阅读</strong><small>保留每篇原文结构</small></button>
+            <button className={overviewMode === "topic" ? "active" : ""} onClick={() => setOverviewMode("topic")}><span>02</span><strong>按主题学习</strong><small>AI 综合多篇资料</small></button>
+            <button className={overviewMode === "graph" ? "active" : ""} onClick={() => setOverviewMode("graph")}><span>03</span><strong>探索知识图谱</strong><small>查看文档与概念关系</small></button>
+          </nav>
 
-          <section className="outline-section">
-            <div className="section-heading"><div><p className="overline">完整课程大纲</p><h2>先知道每一节解决什么问题</h2></div><span>共 6 节 · 约 59 分钟</span></div>
-            <div className="course-outline">
-              {lessons.map((lesson, index) => (
-                <button key={lesson.id} onClick={() => openLesson(lesson.id)} disabled={!lessonContents[lesson.id]}>
-                  <span>{String(lesson.id).padStart(2, "0")}</span>
-                  <div><small>{index < 2 ? "第一章 · 看懂 Agent 如何行动" : index < 4 ? "第二章 · 理解上下文与记忆" : "第三章 · 管理复杂任务"}</small><strong>{lesson.title}</strong><p>{["从真实请求找到逆向分析的证据。", "理解调用工具与观察结果的循环。", "看懂消息为什么越积越多。", "理解压缩如何保留目标与进度。", "看懂任务列表怎样维持短期方向。", "理解隔离上下文为什么能降低干扰。"][index]}</p></div>
-                  <b>{lessonContents[lesson.id] ? "开始阅读 →" : "即将开放"}</b>
-                </button>
-              ))}
-            </div>
-          </section>
+          {overviewMode === "documents" && (
+            <section className="mode-panel">
+              <div className="mode-heading"><div><p className="overline">原文视角</p><h2>一篇文档，一套独立大纲</h2></div><p>这里不混合多篇资料。每张卡片展示该仓库自己的定位、概念和 README 结构。</p></div>
+              <div className="document-list">
+                {sourceDocuments.map((document, index) => (
+                  <article className="document-card" key={document.name}>
+                    <div className="document-number">0{index + 1}</div>
+                    <div className="document-main"><span className="relation-badge">{document.role}</span><h3>{document.name}</h3><small>{document.owner}</small><p>{document.summary}</p><div className="concept-tags">{document.concepts.map((concept) => <span key={concept}>{concept}</span>)}</div></div>
+                    <div className="document-outline"><strong>原文大纲</strong><ol>{document.outline.map((item) => <li key={item}>{item}</li>)}</ol><a href={document.url} target="_blank" rel="noreferrer">查看原文 ↗</a></div>
+                  </article>
+                ))}
+                {graphRepos.map((repo) => <article className="document-card imported" key={repo.id}><div className="document-number">★</div><div className="document-main"><span className="relation-badge">我的收藏</span><h3>{repo.full_name}</h3><p>{repo.description || "尚未提供简介"}</p></div><div className="document-outline"><strong>个性化拆解</strong><p>回到学习台点击“拆解大纲”，即可读取这篇 README 的真实目录。</p><a href={repo.html_url} target="_blank" rel="noreferrer">查看原文 ↗</a></div></article>)}
+              </div>
+            </section>
+          )}
+
+          {overviewMode === "topic" && (
+            <section className="mode-panel">
+              <div className="mode-heading"><div><p className="overline">AI 生成 · 跨 3 篇资料</p><h2>主题路线：Claude Code 如何工作</h2></div><p>这不是任何一篇文章的原目录。AI 按学习顺序重组内容，每节都标明引用来源。</p></div>
+              <div className="topic-legend"><span>路线逻辑</span><b>观察证据</b><i>→</i><b>理解行动</b><i>→</i><b>理解记忆</b><i>→</i><b>管理复杂度</b></div>
+              <div className="course-outline topic-outline">
+                {lessons.map((lesson, index) => {
+                  const sources = index === 0 ? ["reverse"] : index === 1 ? ["works", "from-scratch", "reverse"] : index < 4 ? ["works", "reverse"] : ["from-scratch", "reverse"];
+                  return <button key={lesson.id} onClick={() => openLesson(lesson.id)} disabled={!lessonContents[lesson.id]}><span>{String(lesson.id).padStart(2, "0")}</span><div><small>{index < 2 ? "第一章 · Agent 如何行动" : index < 4 ? "第二章 · 上下文与记忆" : "第三章 · 复杂任务治理"}</small><strong>{lesson.title}</strong><p>{["从真实请求找到逆向证据。", "理解工具调用与观察结果的循环。", "解释消息为什么持续积累。", "理解压缩如何保留目标与进度。", "看懂任务列表怎样维持方向。", "理解隔离上下文如何降低干扰。"][index]}</p><div className="source-tags">来源：{sources.map((source) => <em key={source}>{source}</em>)}</div></div><b>{lessonContents[lesson.id] ? "开始阅读 →" : "即将开放"}</b></button>;
+                })}
+              </div>
+            </section>
+          )}
+
+          {overviewMode === "graph" && (
+            <section className="mode-panel graph-panel">
+              <div className="mode-heading"><div><p className="overline">可解释知识图谱</p><h2>每条关系都说明“为什么相连”</h2></div><p>黄色是文档，紫色是概念；中间标签是关系类型。下面先展示文档之间的关系，再展示文档与概念的关系。</p></div>
+              <div className="graph-legend"><span className="legend-document">文档</span><span className="legend-concept">概念</span><span className="legend-relation">关系说明</span></div>
+              <h3 className="graph-subtitle">文档之间</h3>
+              <div className="relation-list">
+                <div className="relation-row"><strong>how-claude-code-works</strong><span>理论 → 实现</span><strong>claude-code-from-scratch</strong><p>前者建立整体直觉，后者用最小代码验证机制。</p></div>
+                <div className="relation-row"><strong>claude-code-reverse</strong><span>证据补充</span><strong>how-claude-code-works</strong><p>逆向请求为入门文章中的流程解释提供真实证据。</p></div>
+                <div className="relation-row"><strong>claude-code-reverse</strong><span>机制验证</span><strong>claude-code-from-scratch</strong><p>一个观察真实产品，一个实现简化版本，可相互对照。</p></div>
+              </div>
+              <h3 className="graph-subtitle">文档与核心概念</h3>
+              <div className="concept-relation-grid">
+                {sourceDocuments.map((document) => <div className="concept-relation" key={document.name}><strong>{document.name}</strong><span>主要讲解</span><div>{document.concepts.map((concept) => <b key={concept}>{concept}</b>)}</div><p>{document.summary}</p></div>)}
+              </div>
+            </section>
+          )}
         </div>
       )}
 
