@@ -158,6 +158,30 @@ const reviewCards = [
   },
 ];
 
+type MarkdownBlock = { type: "heading" | "paragraph" | "list" | "quote" | "code"; text: string; level?: number; section?: number };
+
+function cleanMarkdown(text: string) {
+  return text.replace(/!\[[^\]]*\]\([^)]+\)/g, "").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/[\*_`]/g, "").trim();
+}
+
+function parseMarkdown(markdown: string): MarkdownBlock[] {
+  const blocks: MarkdownBlock[] = [];
+  let inCode = false;
+  let section = 0;
+  for (const rawLine of markdown.split("\n")) {
+    const line = rawLine.trimEnd();
+    if (line.trim().startsWith("```")) { inCode = !inCode; continue; }
+    if (inCode) { if (line.trim()) blocks.push({ type: "code", text: line }); continue; }
+    const heading = line.match(/^(#{1,4})\s+(.+?)\s*#*$/);
+    if (heading) { blocks.push({ type: "heading", level: heading[1].length, section: section++, text: cleanMarkdown(heading[2]) }); continue; }
+    if (/^[-*+]\s+/.test(line)) { blocks.push({ type: "list", text: cleanMarkdown(line.replace(/^[-*+]\s+/, "")) }); continue; }
+    if (/^>\s?/.test(line)) { blocks.push({ type: "quote", text: cleanMarkdown(line.replace(/^>\s?/, "")) }); continue; }
+    const text = cleanMarkdown(line);
+    if (text && !/^<[!/]/.test(text) && !/^\|[-:| ]+\|$/.test(text)) blocks.push({ type: "paragraph", text });
+  }
+  return blocks;
+}
+
 export default function Home() {
   const [view, setView] = useState<View>("home");
   const [repoUrl, setRepoUrl] = useState("");
@@ -177,6 +201,16 @@ export default function Home() {
   const [outlineLoading, setOutlineLoading] = useState<number | null>(null);
   const [overviewMode, setOverviewMode] = useState<OverviewMode>("documents");
   const [expandedDocument, setExpandedDocument] = useState<string | null>(null);
+  const [activeDocumentName, setActiveDocumentName] = useState("claude-code-reverse");
+  const [readerMode, setReaderMode] = useState<"original" | "guide">("original");
+  const [readmeText, setReadmeText] = useState("");
+  const [readmeLoading, setReadmeLoading] = useState(false);
+  const [readmeError, setReadmeError] = useState(false);
+  const [companionTab, setCompanionTab] = useState<"mentor" | "notes">("mentor");
+  const [noteText, setNoteText] = useState("");
+  const [mentorQuestion, setMentorQuestion] = useState("");
+  const [mentorReply, setMentorReply] = useState("读到哪里卡住了？你可以让我解释当前段落、举例，或帮你整理成笔记。");
+  const [mobileReaderSurface, setMobileReaderSurface] = useState<"document" | "mentor" | "notes">("document");
 
   useEffect(() => {
     const saved = window.localStorage.getItem("starmate-lesson-complete");
@@ -193,6 +227,30 @@ export default function Home() {
   const currentCard = reviewCards[cardIndex];
   const currentLesson = lessonContents[currentLessonId] || lessonContents[2];
   const graphRepos = starredRepos.filter((repo) => savedRepoIds.includes(repo.id)).slice(0, 4);
+  const activeDocument = sourceDocuments.find((document) => document.name === activeDocumentName) || sourceDocuments[2];
+  const markdownBlocks = useMemo(() => parseMarkdown(readmeText), [readmeText]);
+
+  useEffect(() => {
+    if (view !== "reader") return;
+    let cancelled = false;
+    setReadmeLoading(true);
+    setReadmeError(false);
+    fetch(`https://api.github.com/repos/${activeDocument.owner}/${activeDocument.name}/readme`, { headers: { Accept: "application/vnd.github+json" } })
+      .then((response) => { if (!response.ok) throw new Error(); return response.json() as Promise<{ content: string }>; })
+      .then((data) => {
+        if (cancelled) return;
+        const bytes = Uint8Array.from(atob(data.content.replace(/\n/g, "")), (character) => character.charCodeAt(0));
+        setReadmeText(new TextDecoder().decode(bytes));
+      })
+      .catch(() => { if (!cancelled) { setReadmeError(true); setReadmeText(""); } })
+      .finally(() => { if (!cancelled) setReadmeLoading(false); });
+    return () => { cancelled = true; };
+  }, [view, activeDocument.owner, activeDocument.name]);
+
+  useEffect(() => {
+    /* eslint-disable-next-line react-hooks/set-state-in-effect -- restore device-local notebook content when switching documents */
+    setNoteText(window.localStorage.getItem(`starmate-note-${activeDocument.name}`) || "");
+  }, [activeDocument.name]);
 
   const repoName = useMemo(() => {
     try {
@@ -272,6 +330,26 @@ export default function Home() {
     setSelectedAnswer(null);
     setView("reader");
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function openDocument(name: string) {
+    setActiveDocumentName(name);
+    setReaderMode("original");
+    setMobileReaderSurface("document");
+    setView("reader");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function saveNote(value: string) {
+    setNoteText(value);
+    window.localStorage.setItem(`starmate-note-${activeDocument.name}`, value);
+  }
+
+  function askMentor(question = mentorQuestion) {
+    const prompt = question.trim();
+    if (!prompt) return;
+    setMentorReply(`围绕「${activeDocument.name}」当前内容：${prompt.includes("简单") ? "先抓住一个主干——模型不是一次性回答，而是在工具结果返回后继续判断。其余细节都可以挂到这条主干上。" : prompt.includes("笔记") ? "建议记成三行：① 这一节解决什么问题；② 核心机制是什么；③ 我能否用自己的例子复述。" : "先回到当前章节标题，确认它要解决的问题，再寻找原文给出的机制或证据。我可以继续帮你把具体段落拆成白话。"}`);
+    setMentorQuestion("");
   }
 
   async function loadRepoOutline(repo: StarredRepo) {
@@ -457,7 +535,7 @@ export default function Home() {
                   <article className={`document-card ${expandedDocument === document.name ? "expanded" : ""}`} key={document.name}>
                     <div className="document-number">0{index + 1}</div>
                     <div className="document-main"><span className="relation-badge">{document.role}</span><h3>{document.name}</h3><small>{document.owner}</small><p>{document.summary}</p><div className="concept-tags">{document.concepts.map((concept) => <span key={concept}>{concept}</span>)}</div></div>
-                    <div className="document-outline"><strong>原文大纲</strong><ol>{document.outline.map((item) => <li key={item}>{item}</li>)}</ol><div className="document-actions"><button aria-expanded={expandedDocument === document.name} onClick={() => setExpandedDocument(expandedDocument === document.name ? null : document.name)}>{expandedDocument === document.name ? "收起详细大纲" : "查看详细大纲"}</button><a href={document.url} target="_blank" rel="noreferrer">查看原文 ↗</a></div></div>
+                    <div className="document-outline"><strong>原文大纲</strong><ol>{document.outline.map((item) => <li key={item}>{item}</li>)}</ol><div className="document-actions"><button className="read-inside" onClick={() => openDocument(document.name)}>在 App 内阅读</button><button aria-expanded={expandedDocument === document.name} onClick={() => setExpandedDocument(expandedDocument === document.name ? null : document.name)}>{expandedDocument === document.name ? "收起详细大纲" : "查看详细大纲"}</button><a href={document.url} target="_blank" rel="noreferrer">GitHub ↗</a></div></div>
                     {expandedDocument === document.name && <div className="detailed-outline"><div className="outline-heading"><div><span>完整原文大纲</span><strong>{document.sections.length} 个章节层级</strong></div><a href={document.url} target="_blank" rel="noreferrer">前往完整原文 ↗</a></div><div className="reading-guide"><div><span>预计阅读</span><strong>{document.readingTime}</strong></div><div><span>阅读建议</span><strong>{document.focus}</strong></div></div><ol>{document.sections.map((section, sectionIndex) => <li key={section.title}><span>{String(sectionIndex + 1).padStart(2, "0")}</span><div><h4>{section.title}</h4><p><b>本章解决的问题</b>{section.purpose}</p><div className="section-points"><b>章节内部重点</b>{section.points.map((point) => <em key={point}>{point}</em>)}</div></div></li>)}</ol><a className="start-original" href={document.url} target="_blank" rel="noreferrer">前往完整原文 ↗</a></div>}
                   </article>
                 ))}
@@ -501,82 +579,52 @@ export default function Home() {
       {view === "reader" && (
         <div className="reader-layout">
           <aside className="lesson-sidebar">
-            <button className="back-link" onClick={() => setView("home")}>← 返回学习台</button>
-            <p className="overline">当前课程</p>
-            <h2>Claude Code<br />是怎么工作的？</h2>
-            <div className="side-progress"><span style={{ width: `${progress}%` }}></span></div>
+            <button className="back-link" onClick={() => setView("overview")}>← 返回文档地图</button>
+            <p className="overline">笔记式伴读</p>
+            <h2>{activeDocument.name}</h2>
+            <div className="notebook-doc-switch" aria-label="切换文档">{sourceDocuments.map((document, index) => <button className={document.name === activeDocument.name ? "active" : ""} key={document.name} onClick={() => openDocument(document.name)}>文档 {index + 1}</button>)}</div>
+            <p className="sidebar-label">原文目录</p>
             <div className="lesson-list">
-              {lessons.map((lesson) => {
-                const done = lesson.id === 2 ? lessonComplete : lesson.status === "done";
-                return (
-                  <button key={lesson.id} className={`lesson-item ${lesson.id === currentLessonId ? "selected" : ""}`} disabled={!lessonContents[lesson.id]} onClick={() => openLesson(lesson.id)}>
-                    <span>{done ? "✓" : String(lesson.id).padStart(2, "0")}</span>
-                    <div><small>{lesson.eyebrow} · {lesson.minutes} 分钟</small><strong>{lesson.title}</strong></div>
-                  </button>
-                );
-              })}
+              {activeDocument.sections.map((section, index) => <button key={section.title} className="lesson-item" onClick={() => { setReaderMode("original"); document.getElementById(`source-section-${index}`)?.scrollIntoView({ behavior: "smooth", block: "start" }); }}><span>{String(index + 1).padStart(2, "0")}</span><div><small>本章解决</small><strong>{section.title}</strong></div></button>)}
             </div>
+            <button className="sidebar-guide-button" onClick={() => setReaderMode("guide")}>✦ 打开小白讲解</button>
           </aside>
 
-          <article className="reading-pane">
-            <div className="reading-header">
-              <div><p className="kicker">第 {currentLessonId} 节 · {currentLesson.eyebrow}</p><h1>{currentLesson.title}</h1></div>
-              <span className="reading-time">约 {currentLesson.minutes} 分钟</span>
-            </div>
+          <div className="reader-center">
+            <nav className="reader-mobile-tabs" aria-label="伴读工作区"><button className={mobileReaderSurface === "document" ? "active" : ""} onClick={() => setMobileReaderSurface("document")}>原文</button><button className={mobileReaderSurface === "mentor" ? "active" : ""} onClick={() => setMobileReaderSurface("mentor")}>AI 伴读</button><button className={mobileReaderSurface === "notes" ? "active" : ""} onClick={() => setMobileReaderSurface("notes")}>笔记</button></nav>
+            <article className={`reading-pane ${mobileReaderSurface !== "document" ? "mobile-hidden" : ""}`}>
+              <div className="notebook-toolbar"><div><span className="live-dot"></span><strong>正在阅读 {activeDocument.owner}/{activeDocument.name}</strong></div><div className="reader-mode-switch"><button className={readerMode === "original" ? "active" : ""} onClick={() => setReaderMode("original")}>原文全文</button><button className={readerMode === "guide" ? "active" : ""} onClick={() => setReaderMode("guide")}>小白讲解</button></div></div>
 
-            <div className="source-card">
-              <div className="source-label"><span>原文说</span><a href="https://github.com/Yuyz0112/claude-code-reverse" target="_blank" rel="noreferrer">查看 GitHub ↗</a></div>
-              <blockquote>{currentLesson.quote}</blockquote>
-              <p>来源：{currentLesson.source}</p>
-            </div>
-
-            <section className="explain-section">
-              <p className="overline">先用一句话理解</p>
-              <h2>{currentLesson.thesis}</h2>
-              <p>{currentLesson.explanation}</p>
-              <div className="loop-diagram" aria-label="Agent Loop 流程图">
-                {currentLesson.flow.map((step, index) => <div key={step.title}><span>{index + 1}</span><strong>{step.title}</strong><small>{step.detail}</small></div>)}
-              </div>
-            </section>
-
-            <aside className="analogy-card">
-              <span className="analogy-emoji">☕</span>
-              <div><p className="overline">换个生活中的例子</p><h3>{currentLesson.analogyTitle}</h3><p>{currentLesson.analogy}</p></div>
-            </aside>
-
-            <section className="checkpoint">
-              <div className="checkpoint-title"><span>?</span><div><p className="overline">理解检查</p><h2>{currentLesson.question}</h2></div></div>
-              <div className="answers">
-                {currentLesson.answers.map((answer, index) => (
-                  <button
-                    key={answer}
-                    className={`${selectedAnswer === index ? "chosen" : ""} ${selectedAnswer !== null && index === currentLesson.correct ? "correct" : ""}`}
-                    onClick={() => setSelectedAnswer(index)}
-                  >
-                    <span>{String.fromCharCode(65 + index)}</span>{answer}
-                  </button>
-                ))}
-              </div>
-              {selectedAnswer !== null && (
-                <div className={`feedback ${selectedAnswer === currentLesson.correct ? "good" : "retry"}`}>
-                  <strong>{selectedAnswer === currentLesson.correct ? "答对了！" : "再想一步"}</strong>
-                  <p>{selectedAnswer === currentLesson.correct ? currentLesson.feedback : "回到上面的“一句话理解”，找出界面背后真正缺少的那部分信息。"}</p>
+              {readerMode === "original" ? <>
+                <div className="reading-header"><div><p className="kicker">GitHub README · App 内阅读</p><h1>{activeDocument.name}</h1><p className="document-deck">{activeDocument.summary}</p></div><span className="reading-time">{activeDocument.readingTime}</span></div>
+                <div className="inline-companion"><span>✦</span><div><strong>伴读提示</strong><p>{activeDocument.focus} 遇到不懂的段落，可以切到右侧 AI 伴读，不会离开当前页面。</p></div></div>
+                <div className="markdown-reader" aria-live="polite">
+                  {readmeLoading && <div className="reader-loading">正在把 GitHub 原文带进阅读器…</div>}
+                  {readmeError && <div className="reader-loading">原文暂时没有加载成功，先按下面的结构伴读。</div>}
+                  {!readmeLoading && markdownBlocks.length > 0 ? markdownBlocks.map((block, index) => {
+                    if (block.type === "heading") { const Heading = block.level === 1 ? "h2" : block.level === 2 ? "h3" : "h4"; return <Heading id={`source-section-${block.section}`} key={`${block.type}-${index}`}>{block.text}</Heading>; }
+                    if (block.type === "list") return <div className="md-list" key={`${block.type}-${index}`}><span>•</span><p>{block.text}</p></div>;
+                    if (block.type === "quote") return <blockquote key={`${block.type}-${index}`}>{block.text}</blockquote>;
+                    if (block.type === "code") return <code key={`${block.type}-${index}`}>{block.text}</code>;
+                    return <p key={`${block.type}-${index}`}>{block.text}</p>;
+                  }) : !readmeLoading && activeDocument.sections.map((section, index) => <section id={`source-section-${index}`} className="fallback-source-section" key={section.title}><span>0{index + 1}</span><h2>{section.title}</h2><p>{section.purpose}</p><div>{section.points.map((point) => <em key={point}>{point}</em>)}</div></section>)}
                 </div>
-              )}
-            </section>
+              </> : <>
+                <div className="reading-header"><div><p className="kicker">第 {currentLessonId} 节 · {currentLesson.eyebrow}</p><h1>{currentLesson.title}</h1></div><span className="reading-time">约 {currentLesson.minutes} 分钟</span></div>
+                <div className="source-card"><div className="source-label"><span>原文说</span><button onClick={() => setReaderMode("original")}>回到原文全文</button></div><blockquote>{currentLesson.quote}</blockquote><p>来源：{currentLesson.source}</p></div>
+                <section className="explain-section"><p className="overline">先用一句话理解</p><h2>{currentLesson.thesis}</h2><p>{currentLesson.explanation}</p><div className="loop-diagram" aria-label="Agent Loop 流程图">{currentLesson.flow.map((step, index) => <div key={step.title}><span>{index + 1}</span><strong>{step.title}</strong><small>{step.detail}</small></div>)}</div></section>
+                <aside className="analogy-card"><span className="analogy-emoji">☕</span><div><p className="overline">换个生活中的例子</p><h3>{currentLesson.analogyTitle}</h3><p>{currentLesson.analogy}</p></div></aside>
+                <section className="checkpoint"><div className="checkpoint-title"><span>?</span><div><p className="overline">理解检查</p><h2>{currentLesson.question}</h2></div></div><div className="answers">{currentLesson.answers.map((answer, index) => <button key={answer} className={`${selectedAnswer === index ? "chosen" : ""} ${selectedAnswer !== null && index === currentLesson.correct ? "correct" : ""}`} onClick={() => setSelectedAnswer(index)}><span>{String.fromCharCode(65 + index)}</span>{answer}</button>)}</div>{selectedAnswer !== null && <div className={`feedback ${selectedAnswer === currentLesson.correct ? "good" : "retry"}`}><strong>{selectedAnswer === currentLesson.correct ? "答对了！" : "再想一步"}</strong><p>{selectedAnswer === currentLesson.correct ? currentLesson.feedback : "回到上面的“一句话理解”，找出真正缺少的信息。"}</p></div>}</section>
+                <div className="lesson-navigation"><button onClick={() => openLesson(currentLessonId - 1)} disabled={!lessonContents[currentLessonId - 1]}>← 上一节</button>{currentLessonId === 2 ? <button className="finish-button" onClick={finishLesson} disabled={lessonComplete}>{lessonComplete ? "✓ 本节已完成" : "我理解了，完成本节"}</button> : <button className="finish-button" onClick={() => openLesson(2)}>下一节：Agent Loop →</button>}</div>
+              </>}
+            </article>
 
-            <div className="lesson-navigation">
-              <button onClick={() => openLesson(currentLessonId - 1)} disabled={!lessonContents[currentLessonId - 1]}>← 上一节</button>
-              {currentLessonId === 2 ? <button className="finish-button" onClick={finishLesson} disabled={lessonComplete}>{lessonComplete ? "✓ 本节已完成" : "我理解了，完成本节"}</button> : <button className="finish-button" onClick={() => openLesson(2)}>下一节：Agent Loop →</button>}
-            </div>
-          </article>
+            {mobileReaderSurface !== "document" && <section className="mobile-companion-panel">{mobileReaderSurface === "mentor" ? <><div className="mentor-heading"><span className="mentor-avatar">✦</span><div><strong>AI 伴读老师</strong><small>围绕当前原文回答</small></div></div><div className="mentor-message">{mentorReply}</div><div className="prompt-chips"><button onClick={() => askMentor("再简单一点")}>再简单一点</button><button onClick={() => askMentor("帮我整理成笔记")}>整理成笔记</button></div><div className="mentor-input"><input value={mentorQuestion} onChange={(event) => setMentorQuestion(event.target.value)} placeholder="输入你的问题…" /><button onClick={() => askMentor()}>↑</button></div></> : <><p className="overline">我的笔记</p><h2>{activeDocument.name}</h2><textarea value={noteText} onChange={(event) => saveNote(event.target.value)} placeholder="记下自己的理解、疑问和例子…" /><small>已自动保存在这台设备</small></>}</section>}
+          </div>
 
           <aside className="mentor-panel">
-            <div className="mentor-heading"><span className="mentor-avatar">✦</span><div><strong>伴读老师</strong><small>围绕当前原文回答</small></div></div>
-            <div className="mentor-message">读到这里有哪里卡住吗？你可以让我换个例子，或者继续追问。</div>
-            <div className="prompt-chips"><button>再简单一点</button><button>举一个产品例子</button><button>这和 RAG 有什么关系？</button></div>
-            <div className="mentor-input"><input aria-label="向伴读老师提问" placeholder="输入你的问题…" /><button aria-label="发送问题">↑</button></div>
-            <p className="grounding-note">回答将优先引用当前仓库原文</p>
+            <div className="companion-tabs"><button className={companionTab === "mentor" ? "active" : ""} onClick={() => setCompanionTab("mentor")}>AI 伴读</button><button className={companionTab === "notes" ? "active" : ""} onClick={() => setCompanionTab("notes")}>我的笔记</button></div>
+            {companionTab === "mentor" ? <><div className="mentor-heading"><span className="mentor-avatar">✦</span><div><strong>伴读老师</strong><small>围绕当前原文回答</small></div></div><div className="mentor-message">{mentorReply}</div><div className="prompt-chips"><button onClick={() => askMentor("再简单一点")}>再简单一点</button><button onClick={() => askMentor("举一个产品例子")}>举一个产品例子</button><button onClick={() => askMentor("帮我整理成笔记")}>整理成笔记</button></div><div className="mentor-input"><input aria-label="向伴读老师提问" value={mentorQuestion} onChange={(event) => setMentorQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") askMentor(); }} placeholder="输入你的问题…" /><button aria-label="发送问题" onClick={() => askMentor()}>↑</button></div><p className="grounding-note">回答优先围绕当前仓库原文</p></> : <div className="notes-panel"><p className="overline">文档笔记</p><h3>{activeDocument.name}</h3><textarea value={noteText} onChange={(event) => saveNote(event.target.value)} placeholder="记下自己的理解、疑问和例子…" /><small>内容已自动保存在这台设备</small><button onClick={() => askMentor("帮我整理成笔记")}>✦ 请 AI 帮我整理</button></div>}
           </aside>
         </div>
       )}
