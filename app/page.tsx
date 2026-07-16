@@ -50,7 +50,7 @@ type MentorMessage = {
   content: string;
   quote?: string;
   source?: string;
-  check?: { question: string; options: string[]; correct: number };
+  check?: { question: string; options: string[]; correct: number; feedback: string };
 };
 
 const lessons: Lesson[] = [
@@ -171,6 +171,116 @@ const reviewCards = [
 
 type MarkdownBlock = { type: "heading" | "paragraph" | "list" | "quote" | "code"; text: string; level?: number; section?: number };
 
+type SectionGuide = {
+  title: string;
+  eyebrow: string;
+  minutes: number;
+  quote: string;
+  source: string;
+  thesis: string;
+  explanation: string;
+  flow: { title: string; detail: string }[];
+  keyPoints: string[];
+  analogyEmoji: string;
+  analogyTitle: string;
+  analogy: string;
+  question: string;
+  answers: string[];
+  correct: number;
+  feedback: string;
+};
+
+const guideProfiles: Record<string, {
+  eyebrow: string;
+  lens: string;
+  flow: { title: string; detail: string }[];
+  fallbackAnalogy: { emoji: string; title: string; text: string };
+}> = {
+  "how-claude-code-works": {
+    eyebrow: "产品原理视角",
+    lens: "先看全局，再把模型、工具和运行环境连成一条数据流",
+    flow: [{ title: "看全局", detail: "这一节位于系统的哪一层" }, { title: "找模块", detail: "谁负责判断，谁负责行动" }, { title: "连流程", detail: "信息怎样进入下一轮" }],
+    fallbackAnalogy: { emoji: "🗺️", title: "像先看商场导览图", text: "先知道楼层、区域和动线，再进入某家店看细节。理解系统也是先建立地图，再研究局部。" },
+  },
+  "claude-code-from-scratch": {
+    eyebrow: "动手实现视角",
+    lens: "把抽象概念对应到可以运行的代码、输入和输出",
+    flow: [{ title: "找到代码", detail: "这一节新增了什么结构" }, { title: "运行观察", detail: "输入后实际发生了什么" }, { title: "对应原理", detail: "它属于 Agent Loop 哪一步" }],
+    fallbackAnalogy: { emoji: "🧩", title: "像照着图纸拼积木", text: "每章只增加一个能运行的小零件，最终把模型请求、工具和循环拼成完整系统。" },
+  },
+  "claude-code-reverse": {
+    eyebrow: "运行证据视角",
+    lens: "从 API 请求和运行日志出发，区分真实证据与作者推断",
+    flow: [{ title: "捕获行为", detail: "先记录真实请求或日志" }, { title: "对比变化", detail: "观察不同任务里的共同结构" }, { title: "形成结论", detail: "用证据解释产品机制" }],
+    fallbackAnalogy: { emoji: "🧾", title: "像根据后厨小票还原流程", text: "不进入后厨，也能通过每张小票的时间和内容，还原下单、制作与出餐的顺序。" },
+  },
+};
+
+const guideIntents = [
+  { match: /architecture|架构|结构/i, purpose: "看清系统由哪些部分组成，以及它们怎样协作", focus: "模块、边界和信息流", analogy: { emoji: "🏗️", title: "像看一栋楼的结构图", text: "先分清承重结构、管线和房间用途，才能理解一个局部改动会影响哪里。" } },
+  { match: /quick start|快速开始|每章代码|教程|tutorial/i, purpose: "知道怎样开始动手，并验证示例确实可以运行", focus: "前置条件、执行步骤和可观察结果", analogy: { emoji: "🧪", title: "像第一次做实验", text: "先按步骤搭好环境，再观察结果是否符合预期；跑通比一次记住全部原理更重要。" } },
+  { match: /monkey patch|api request|请求/i, purpose: "理解怎样截获模型请求，并把黑盒行为变成可观察证据", focus: "拦截位置、请求内容和记录方式", analogy: { emoji: "📮", title: "像在邮局中转站复印信件", text: "不改变信件的目的地，只在中途留下副本，就能研究双方实际交换了什么。" } },
+  { match: /log|日志|visualization|可视化/i, purpose: "把冗长运行记录整理成可以比较和追踪的过程", focus: "时间顺序、重复内容和关键差异", analogy: { emoji: "🎬", title: "像把监控录像剪成事件时间线", text: "删去长时间没有变化的画面，只保留关键动作，流程就会变得清楚。" } },
+  { match: /analysis|关键设计|核心能力|专题/i, purpose: "从材料中提炼真正值得迁移的机制，而不是停留在功能清单", focus: "现象、机制和适用条件", analogy: { emoji: "🔬", title: "像从实验结果归纳规律", text: "一次现象只能提供线索，多组证据共同出现时，才更有把握判断背后的机制。" } },
+  { match: /对比|comparison/i, purpose: "通过差异理解简化实现保留了什么、暂时省略了什么", focus: "共同核心、实现差异和能力边界", analogy: { emoji: "⚖️", title: "像比较教学模型与真飞机", text: "教学模型不会拥有全部零件，但会保留最能解释飞行原理的结构。" } },
+  { match: /worth|为什么|谁应该|阅读建议|路线图|roadmap/i, purpose: "判断阅读价值、适合人群和最省力的学习顺序", focus: "学习目标、阅读优先级和预期收获", analogy: { emoji: "🧭", title: "像出发前选择旅行路线", text: "先确定目的地和体力，再决定走完整路线还是只看最关键的景点。" } },
+  { match: /data|数据|star history|license|贡献|致谢|交流|相关项目/i, purpose: "识别项目的补充信息，并判断它与核心技术内容的关系", focus: "可信度、生态信息和使用边界", analogy: { emoji: "🗂️", title: "像阅读一本书的附录", text: "它不一定解释核心原理，却能告诉你资料来源、使用边界和继续探索的方向。" } },
+];
+
+function shorten(text: string, max = 150) {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  return normalized.length > max ? `${normalized.slice(0, max)}…` : normalized;
+}
+
+function buildSectionGuide(documentName: string, blocks: MarkdownBlock[], headings: MarkdownBlock[], sectionIndex: number): SectionGuide {
+  const profile = guideProfiles[documentName] || guideProfiles["how-claude-code-works"];
+  const heading = headings[sectionIndex] || headings[0] || { type: "heading", text: "文章开头", section: 0 };
+  const start = Math.max(0, blocks.findIndex((block) => block.type === "heading" && block.section === heading.section));
+  const nextOffset = blocks.slice(start + 1).findIndex((block) => block.type === "heading" && (block.level || 1) <= 2);
+  const end = nextOffset < 0 ? blocks.length : start + 1 + nextOffset;
+  const sectionText = blocks.slice(start + 1, end)
+    .filter((block) => block.type === "paragraph" || block.type === "list" || block.type === "quote")
+    .map((block) => shorten(block.text, 180))
+    .filter((text) => text.length >= 12 && !/^https?:/i.test(text));
+  const intent = guideIntents.find((item) => item.match.test(heading.text)) || {
+    purpose: `弄清「${heading.text}」在整篇文章中承担什么作用`,
+    focus: "作者提出的问题、给出的做法和最终结论",
+    analogy: profile.fallbackAnalogy,
+  };
+  const quote = sectionText[0] || `本节围绕「${heading.text}」展开。`;
+  const keyPoints = sectionText.slice(0, 3);
+  while (keyPoints.length < 3) keyPoints.push([
+    `先用一句话复述「${heading.text}」要解决的问题。`,
+    `再从原文中找出与“${intent.focus}”有关的证据。`,
+    "最后把这一节与上一篇或下一节连接起来。",
+  ][keyPoints.length]);
+  const correct = sectionIndex % 3;
+  const correctAnswer = `${intent.purpose}，并能指出原文依据`;
+  const wrongAnswers = ["记住所有英文术语，不需要理解它们之间的关系", "只浏览代码或链接数量，跳过作者的论证过程"];
+  const answers = [...wrongAnswers];
+  answers.splice(correct, 0, correctAnswer);
+  const minutes = Math.max(4, Math.min(12, 4 + Math.ceil(sectionText.join("").length / 900)));
+
+  return {
+    title: heading.text,
+    eyebrow: profile.eyebrow,
+    minutes,
+    quote,
+    source: `${documentName} · ${heading.text}`,
+    thesis: `这一节真正要解决的是：${intent.purpose}。`,
+    explanation: `这篇文章采用“${profile.lens}”的方式展开。读「${heading.text}」时，不必先记住所有细节，先抓住${intent.focus}。原文中的具体描述会作为证据，帮助你判断作者为什么得出这一结论。`,
+    flow: profile.flow,
+    keyPoints,
+    analogyEmoji: intent.analogy.emoji,
+    analogyTitle: intent.analogy.title,
+    analogy: intent.analogy.text,
+    question: `读完「${heading.text}」，你最应该先确认哪件事？`,
+    answers,
+    correct,
+    feedback: `这一节的目标不是背诵，而是${intent.purpose}。你还应该能回到原文，指出支持这一理解的句子。`,
+  };
+}
+
 function cleanMarkdown(text: string) {
   return text.replace(/!\[[^\]]*\]\([^)]+\)/g, "").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/[\*_`]/g, "").trim();
 }
@@ -213,7 +323,6 @@ export default function Home() {
   const [syncingStars, setSyncingStars] = useState(false);
   const [starMessage, setStarMessage] = useState("");
   const [savedRepoIds, setSavedRepoIds] = useState<number[]>([]);
-  const [currentLessonId, setCurrentLessonId] = useState(2);
   const [repoOutlines, setRepoOutlines] = useState<Record<number, string[]>>({});
   const [outlineLoading, setOutlineLoading] = useState<number | null>(null);
   const [overviewMode, setOverviewMode] = useState<OverviewMode>("documents");
@@ -243,7 +352,6 @@ export default function Home() {
   const completedCount = lessonComplete ? 2 : 1;
   const progress = Math.round((completedCount / lessons.length) * 100);
   const currentCard = reviewCards[cardIndex];
-  const currentLesson = lessonContents[currentLessonId] || lessonContents[2];
   const graphRepos = starredRepos.filter((repo) => savedRepoIds.includes(repo.id)).slice(0, 4);
   const activeDocument = sourceDocuments.find((document) => document.name === activeDocumentName) || sourceDocuments[2];
   const readmeText = useMemo(() => { try { return decodeBase64Utf8(EMBEDDED_READMES[activeDocument.name] || ""); } catch { return ""; } }, [activeDocument.name]);
@@ -252,6 +360,7 @@ export default function Home() {
   const markdownBlocks = useMemo(() => parseMarkdown(readmeText), [readmeText]);
   const readmeHeadings = useMemo(() => markdownBlocks.filter((block) => block.type === "heading" && (block.level || 1) <= 2), [markdownBlocks]);
   const currentSectionTitle = readmeHeadings[activeSourceSection]?.text || "文章开头";
+  const currentGuide = useMemo(() => buildSectionGuide(activeDocument.name, markdownBlocks, readmeHeadings, activeSourceSection), [activeDocument.name, markdownBlocks, readmeHeadings, activeSourceSection]);
 
   useEffect(() => {
     /* eslint-disable-next-line react-hooks/set-state-in-effect -- restore device-local notebook content when switching documents */
@@ -332,7 +441,11 @@ export default function Home() {
 
   function openLesson(id: number) {
     if (!lessonContents[id]) return;
-    setCurrentLessonId(id);
+    setActiveDocumentName("claude-code-reverse");
+    setActiveSourceSection(id === 1 ? 0 : 2);
+    setReaderMode("guide");
+    setMobileReaderSurface("document");
+    setSelectedText("");
     setSelectedAnswer(null);
     setView("reader");
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -341,6 +454,7 @@ export default function Home() {
   function openDocument(name: string) {
     setActiveDocumentName(name);
     setActiveSourceSection(0);
+    setSelectedAnswer(null);
     setSelectedText("");
     setMentorMessages([{ id: mentorMessageId.current++, role: "teacher", title: "文章已切换", content: `我已经开始跟随「${name}」。选中原文或点击快捷动作，我们从当前章节继续。` }]);
     setReaderMode("original");
@@ -352,8 +466,16 @@ export default function Home() {
   function goToSourceSection(index: number) {
     const target = Math.max(0, Math.min(index, readmeHeadings.length - 1));
     setActiveSourceSection(target);
+    setSelectedAnswer(null);
     const section = readmeHeadings[target];
     window.setTimeout(() => document.getElementById(`source-section-${section?.section}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+  }
+
+  function goToGuideSection(index: number) {
+    const target = Math.max(0, Math.min(index, readmeHeadings.length - 1));
+    setActiveSourceSection(target);
+    setSelectedAnswer(null);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function saveNote(value: string) {
@@ -382,13 +504,13 @@ export default function Home() {
     const id = mentorMessageId.current;
     mentorMessageId.current += 2;
     const replies = {
-      explain: "先抓住主干：这段内容在说明系统怎样从一次回答，变成可以持续行动、观察结果并继续判断的过程。细节都可以挂在这条主线上。",
-      example: "把它想成一位查资料的实习生：先理解任务，发现信息不够就打开文件；拿到结果后再判断下一步，直到能给出完整结论。",
-      guide: "先别急着记术语。你可以先回答：这一节想解决什么问题？作者给出了什么机制或证据？如果能用自己的话复述这两点，就已经理解了主干。",
-      check: "先不要回看原文，试着主动回忆。选完答案后，我会告诉你应该回到哪里确认。",
-      ask: prompt.includes("简单") ? "用最简单的话说：模型负责判断，工具负责行动，工具结果再交回模型继续判断。" : "我会先依据当前章节和你选中的原文回答。这里最重要的是区分作者陈述的事实、解释机制的推论，以及帮助理解的类比。",
+      explain: `${currentGuide.thesis}${currentGuide.explanation}`,
+      example: `${currentGuide.analogyTitle}：${currentGuide.analogy}`,
+      guide: `先别急着记术语。请先回答：${currentGuide.question} 然后回到原文，找出支持你答案的句子。`,
+      check: `先不要回看原文，试着回答关于「${currentGuide.title}」的问题。选完后再回到当前章节确认。`,
+      ask: prompt.includes("简单") ? currentGuide.thesis : `我会按「${currentGuide.eyebrow}」来回答。先看当前章节要解决的问题，再用原文证据解释；当前最值得关注的是：${currentGuide.keyPoints[0]}`,
     };
-    const teacher: MentorMessage = { id: id + 1, role: "teacher", title: action === "check" ? "理解检查" : action === "example" ? "换个例子" : action === "guide" ? "苏格拉底引导" : "小白解释", content: replies[action], quote: selectedText || undefined, source: `${activeDocument.name} · ${currentSectionTitle}`, check: action === "check" ? { question: "Coding Agent 为什么需要把工具结果重新交给模型？", options: ["让模型看到行动结果并决定下一步", "只是为了保存运行日志", "为了重新登录 GitHub"], correct: 0 } : undefined };
+    const teacher: MentorMessage = { id: id + 1, role: "teacher", title: action === "check" ? "理解检查" : action === "example" ? "换个例子" : action === "guide" ? "苏格拉底引导" : "小白解释", content: replies[action], quote: selectedText || undefined, source: currentGuide.source, check: action === "check" ? { question: currentGuide.question, options: currentGuide.answers, correct: currentGuide.correct, feedback: currentGuide.feedback } : undefined };
     setMentorMessages((messages) => [...messages, { id, role: "user", content: prompt }, teacher]);
     setMentorCheckChoice(null);
     setMentorQuestion("");
@@ -399,7 +521,7 @@ export default function Home() {
     return <>
       <div className="mentor-heading"><span className="mentor-avatar">✦</span><div><strong>伴读老师</strong><small>框架模式 · 围绕当前原文</small></div></div>
       <div className="mentor-context"><span>当前上下文</span><strong>{activeDocument.name}</strong><small>{currentSectionTitle}</small>{selectedText && <><blockquote>“{selectedText.slice(0, 120)}{selectedText.length > 120 ? "…" : ""}”</blockquote><button onClick={() => addToNotes()}>+ 加入笔记</button></>}</div>
-      <div className="mentor-conversation">{mentorMessages.map((message) => <article className={`mentor-bubble ${message.role}`} key={message.id}>{message.title && <strong>{message.title}</strong>}{message.quote && <blockquote>“{message.quote.slice(0, 110)}{message.quote.length > 110 ? "…" : ""}”</blockquote>}<p>{message.content}</p>{message.source && <small>依据：{message.source}</small>}{message.check && <div className="mentor-check"><b>{message.check.question}</b>{message.check.options.map((option, index) => <button className={mentorCheckChoice === index ? (index === message.check?.correct ? "correct" : "wrong") : ""} key={option} onClick={() => setMentorCheckChoice(index)}>{String.fromCharCode(65 + index)}. {option}</button>)}{mentorCheckChoice !== null && <em>{mentorCheckChoice === message.check.correct ? "回答正确：工具结果是模型观察外部世界的新信息。" : "再想一步：模型无法直接看见工具执行后发生了什么。"}</em>}</div>}</article>)}</div>
+      <div className="mentor-conversation">{mentorMessages.map((message) => <article className={`mentor-bubble ${message.role}`} key={message.id}>{message.title && <strong>{message.title}</strong>}{message.quote && <blockquote>“{message.quote.slice(0, 110)}{message.quote.length > 110 ? "…" : ""}”</blockquote>}<p>{message.content}</p>{message.source && <small>依据：{message.source}</small>}{message.check && <div className="mentor-check"><b>{message.check.question}</b>{message.check.options.map((option, index) => <button className={mentorCheckChoice === index ? (index === message.check?.correct ? "correct" : "wrong") : ""} key={option} onClick={() => setMentorCheckChoice(index)}>{String.fromCharCode(65 + index)}. {option}</button>)}{mentorCheckChoice !== null && <em>{mentorCheckChoice === message.check.correct ? `回答正确：${message.check.feedback}` : "再想一步：回到这一节的核心问题，区分原文证据与无关细节。"}</em>}</div>}</article>)}</div>
       <div className="mentor-actions"><button onClick={() => askMentor("解释当前内容", "explain")}><span>译</span>小白解释</button><button onClick={() => askMentor("通过提问引导我", "guide")}><span>问</span>引导思考</button><button onClick={() => askMentor("举一个容易理解的例子", "example")}><span>例</span>举个例子</button><button onClick={() => askMentor("检查我是否理解", "check")}><span>测</span>理解检查</button></div>
       <div className="mentor-input"><input aria-label="向伴读老师提问" value={mentorQuestion} onChange={(event) => setMentorQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") askMentor(); }} placeholder="围绕当前章节提问…" /><button aria-label="发送问题" onClick={() => askMentor()}>↑</button></div>
       <p className="grounding-note">未来接入真实模型时，将发送当前文章、章节、选中原文和最近对话</p>
@@ -639,15 +761,15 @@ export default function Home() {
             <div className="notebook-doc-switch" aria-label="切换文章">{sourceDocuments.map((document, index) => <button className={document.name === activeDocument.name ? "active" : ""} key={document.name} title={document.name} onClick={() => openDocument(document.name)}>{index + 1}</button>)}</div>
             <p className="sidebar-label">README 真实目录 · {readmeHeadings.length} 节</p>
             <div className="lesson-list">
-              {readmeHeadings.map((heading, index) => <button key={`${heading.text}-${index}`} className={`lesson-item ${activeSourceSection === index ? "selected" : ""}`} onClick={() => { setReaderMode("original"); goToSourceSection(index); }}><span>{String(index + 1).padStart(2, "0")}</span><div><small>README 原文章节</small><strong>{heading.text}</strong></div></button>)}
+              {readmeHeadings.map((heading, index) => <button key={`${heading.text}-${index}`} className={`lesson-item ${activeSourceSection === index ? "selected" : ""}`} onClick={() => readerMode === "guide" ? goToGuideSection(index) : goToSourceSection(index)}><span>{String(index + 1).padStart(2, "0")}</span><div><small>{readerMode === "guide" ? "当前讲解章节" : "README 原文章节"}</small><strong>{heading.text}</strong></div></button>)}
             </div>
-            <button className="sidebar-guide-button" onClick={() => setReaderMode("guide")}>✦ 打开小白讲解</button>
+            <button className="sidebar-guide-button" onClick={() => { setReaderMode("guide"); setSelectedAnswer(null); }}>✦ 打开当前章节讲解</button>
           </aside>
 
           <div className="reader-center">
             <nav className="reader-mobile-tabs" aria-label="伴读工作区"><button className={mobileReaderSurface === "document" ? "active" : ""} onClick={() => setMobileReaderSurface("document")}>原文</button><button className={mobileReaderSurface === "mentor" ? "active" : ""} onClick={() => setMobileReaderSurface("mentor")}>AI 伴读</button><button className={mobileReaderSurface === "notes" ? "active" : ""} onClick={() => setMobileReaderSurface("notes")}>笔记</button></nav>
             <article className={`reading-pane ${mobileReaderSurface !== "document" ? "mobile-hidden" : ""}`}>
-              <div className="notebook-toolbar"><div><span className="live-dot"></span><strong>正在阅读 {activeDocument.owner}/{activeDocument.name}</strong></div><div className="reader-mode-switch"><button className={readerMode === "original" ? "active" : ""} onClick={() => setReaderMode("original")}>原文全文</button><button className={readerMode === "guide" ? "active" : ""} onClick={() => setReaderMode("guide")}>小白讲解</button></div></div>
+              <div className="notebook-toolbar"><div><span className="live-dot"></span><strong>正在阅读 {activeDocument.owner}/{activeDocument.name}</strong></div><div className="reader-mode-switch"><button className={readerMode === "original" ? "active" : ""} onClick={() => setReaderMode("original")}>原文全文</button><button className={readerMode === "guide" ? "active" : ""} onClick={() => { setReaderMode("guide"); setSelectedAnswer(null); }}>小白讲解</button></div></div>
 
               {readerMode === "original" ? <>
                 <div className="reading-header"><div><p className="kicker">GitHub README · App 内阅读</p><h1>{activeDocument.name}</h1><p className="document-deck">{activeDocument.summary}</p></div><span className="reading-time">{activeDocument.readingTime}</span></div>
@@ -666,12 +788,13 @@ export default function Home() {
                 </div>
                 <div className="source-navigation"><button onClick={() => goToSourceSection(activeSourceSection - 1)} disabled={activeSourceSection === 0}>← 上一节</button><span>{readmeHeadings.length ? `${activeSourceSection + 1} / ${readmeHeadings.length}` : "读取目录中"}</span><button onClick={() => goToSourceSection(activeSourceSection + 1)} disabled={!readmeHeadings.length || activeSourceSection >= readmeHeadings.length - 1}>下一节 →</button></div>
               </> : <>
-                <div className="reading-header"><div><p className="kicker">第 {currentLessonId} 节 · {currentLesson.eyebrow}</p><h1>{currentLesson.title}</h1></div><span className="reading-time">约 {currentLesson.minutes} 分钟</span></div>
-                <div className="source-card"><div className="source-label"><span>原文说</span><button onClick={() => setReaderMode("original")}>回到原文全文</button></div><blockquote>{currentLesson.quote}</blockquote><p>来源：{currentLesson.source}</p></div>
-                <section className="explain-section"><p className="overline">先用一句话理解</p><h2>{currentLesson.thesis}</h2><p>{currentLesson.explanation}</p><div className="loop-diagram" aria-label="Agent Loop 流程图">{currentLesson.flow.map((step, index) => <div key={step.title}><span>{index + 1}</span><strong>{step.title}</strong><small>{step.detail}</small></div>)}</div></section>
-                <aside className="analogy-card"><span className="analogy-emoji">☕</span><div><p className="overline">换个生活中的例子</p><h3>{currentLesson.analogyTitle}</h3><p>{currentLesson.analogy}</p></div></aside>
-                <section className="checkpoint"><div className="checkpoint-title"><span>?</span><div><p className="overline">理解检查</p><h2>{currentLesson.question}</h2></div></div><div className="answers">{currentLesson.answers.map((answer, index) => <button key={answer} className={`${selectedAnswer === index ? "chosen" : ""} ${selectedAnswer !== null && index === currentLesson.correct ? "correct" : ""}`} onClick={() => setSelectedAnswer(index)}><span>{String.fromCharCode(65 + index)}</span>{answer}</button>)}</div>{selectedAnswer !== null && <div className={`feedback ${selectedAnswer === currentLesson.correct ? "good" : "retry"}`}><strong>{selectedAnswer === currentLesson.correct ? "答对了！" : "再想一步"}</strong><p>{selectedAnswer === currentLesson.correct ? currentLesson.feedback : "回到上面的“一句话理解”，找出真正缺少的信息。"}</p></div>}</section>
-                <div className="lesson-navigation"><button onClick={() => openLesson(currentLessonId - 1)} disabled={!lessonContents[currentLessonId - 1]}>← 上一节</button>{currentLessonId === 2 ? <button className="finish-button" onClick={finishLesson} disabled={lessonComplete}>{lessonComplete ? "✓ 本节已完成" : "我理解了，完成本节"}</button> : <button className="finish-button" onClick={() => openLesson(2)}>下一节：Agent Loop →</button>}</div>
+                <div className="reading-header"><div><p className="kicker">第 {activeSourceSection + 1} / {readmeHeadings.length} 节 · {currentGuide.eyebrow}</p><h1>{currentGuide.title}</h1><p className="document-deck">这份讲解来自当前 README 章节，不会与其他文章共用固定课程内容。</p></div><span className="reading-time">约 {currentGuide.minutes} 分钟</span></div>
+                <div className="source-card"><div className="source-label"><span>本节原文证据</span><button onClick={() => { setReaderMode("original"); goToSourceSection(activeSourceSection); }}>回到这一节原文</button></div><blockquote>{currentGuide.quote}</blockquote><p>来源：{currentGuide.source}</p></div>
+                <section className="explain-section"><p className="overline">先用一句话理解</p><h2>{currentGuide.thesis}</h2><p>{currentGuide.explanation}</p><div className="loop-diagram" aria-label={`${currentGuide.eyebrow}阅读步骤`}>{currentGuide.flow.map((step, index) => <div key={step.title}><span>{index + 1}</span><strong>{step.title}</strong><small>{step.detail}</small></div>)}</div></section>
+                <section className="guide-key-points"><div><p className="overline">根据这一节原文提取</p><h2>本节需要抓住的 3 个点</h2></div>{currentGuide.keyPoints.map((point, index) => <article key={`${point}-${index}`}><span>{String(index + 1).padStart(2, "0")}</span><p>{point}</p></article>)}</section>
+                <aside className="analogy-card"><span className="analogy-emoji">{currentGuide.analogyEmoji}</span><div><p className="overline">换个生活中的例子</p><h3>{currentGuide.analogyTitle}</h3><p>{currentGuide.analogy}</p></div></aside>
+                <section className="checkpoint"><div className="checkpoint-title"><span>?</span><div><p className="overline">当前章节理解检查</p><h2>{currentGuide.question}</h2></div></div><div className="answers">{currentGuide.answers.map((answer, index) => <button key={answer} className={`${selectedAnswer === index ? "chosen" : ""} ${selectedAnswer !== null && index === currentGuide.correct ? "correct" : ""}`} onClick={() => setSelectedAnswer(index)}><span>{String.fromCharCode(65 + index)}</span>{answer}</button>)}</div>{selectedAnswer !== null && <div className={`feedback ${selectedAnswer === currentGuide.correct ? "good" : "retry"}`}><strong>{selectedAnswer === currentGuide.correct ? "答对了！" : "再想一步"}</strong><p>{selectedAnswer === currentGuide.correct ? currentGuide.feedback : "回到上面的核心问题，找出与当前章节真正相关的原文证据。"}</p>{selectedAnswer === currentGuide.correct && <button className="guide-complete" onClick={finishLesson} disabled={lessonComplete}>{lessonComplete ? "✓ 已记录学习进度" : "记录为已理解"}</button>}</div>}</section>
+                <div className="source-navigation"><button onClick={() => goToGuideSection(activeSourceSection - 1)} disabled={activeSourceSection === 0}>← 上一节讲解</button><span>{activeSourceSection + 1} / {readmeHeadings.length}</span><button onClick={() => goToGuideSection(activeSourceSection + 1)} disabled={activeSourceSection >= readmeHeadings.length - 1}>下一节讲解 →</button></div>
               </>}
             </article>
 
