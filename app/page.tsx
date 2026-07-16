@@ -59,6 +59,14 @@ const sourceDocuments = [
     summary: "从产品视角解释 Claude Code 的整体运行方式，适合先建立直觉。",
     concepts: ["整体架构", "Agent Loop", "工具调用"],
     outline: ["Claude Code 是什么", "一次任务如何运行", "工具如何参与", "上下文如何变化"],
+    readingTime: "约 18 分钟",
+    focus: "先建立整体直觉，不需要提前理解代码实现。",
+    sections: [
+      { title: "Claude Code 是什么", purpose: "认识 Coding Agent 与普通聊天机器人的差别", points: ["从回答问题到执行任务", "模型、工具和运行环境"] },
+      { title: "一次任务如何运行", purpose: "抓住输入—行动—观察的主循环", points: ["任务如何进入模型", "模型何时决定继续或结束"] },
+      { title: "工具如何参与", purpose: "理解模型为什么能读文件和执行命令", points: ["工具定义", "工具调用", "结果回传"] },
+      { title: "上下文如何变化", purpose: "为后续理解 Compact 建立前置知识", points: ["消息持续追加", "上下文窗口限制"] },
+    ],
     url: "https://github.com/Windy3f3f3f3f/how-claude-code-works",
   },
   {
@@ -68,6 +76,14 @@ const sourceDocuments = [
     summary: "通过从零实现一个简化版本，把抽象机制落实到代码结构。",
     concepts: ["最小实现", "Agent Loop", "消息结构"],
     outline: ["最小 Agent 结构", "发送模型请求", "定义与执行工具", "循环与结束条件"],
+    readingTime: "约 25 分钟",
+    focus: "带着“每段代码属于循环的哪一步”这个问题阅读。",
+    sections: [
+      { title: "最小 Agent 结构", purpose: "看清一个 Agent 最少需要哪些模块", points: ["模型客户端", "工具注册表", "循环控制器"] },
+      { title: "发送模型请求", purpose: "理解消息如何进入模型", points: ["System Prompt", "用户消息", "历史上下文"] },
+      { title: "定义与执行工具", purpose: "把模型决策转换成真实行动", points: ["工具参数", "本地执行", "错误处理"] },
+      { title: "循环与结束条件", purpose: "将请求、行动和观察串成完整 Agent Loop", points: ["追加 Tool Result", "继续推理", "返回最终答案"] },
+    ],
     url: "https://github.com/Windy3f3f3f3f/claude-code-from-scratch",
   },
   {
@@ -77,6 +93,15 @@ const sourceDocuments = [
     summary: "从真实请求和行为还原 Claude Code，补充上下文与记忆管理细节。",
     concepts: ["API 请求", "Context", "Compact", "Todo"],
     outline: ["逆向方法", "核心 Agent 流程", "Context 增长", "Compact 与 Todo", "子 Agent"],
+    readingTime: "约 35 分钟",
+    focus: "重点看证据与结论如何对应，不必记住所有请求字段。",
+    sections: [
+      { title: "逆向方法", purpose: "学习怎样从真实请求还原产品行为", points: ["捕获 API 请求", "区分事实与推测"] },
+      { title: "核心 Agent 流程", purpose: "用请求记录验证 Agent Loop", points: ["System Workflow Prompt", "消息追加", "工具结果"] },
+      { title: "Context 增长", purpose: "理解长任务为什么越来越消耗上下文", points: ["历史消息", "文件内容", "工具输出"] },
+      { title: "Compact 与 Todo", purpose: "看懂长期记忆与短期方向如何配合", points: ["压缩保留什么", "Todo 解决什么"] },
+      { title: "子 Agent", purpose: "理解复杂任务中的上下文隔离", points: ["独立上下文", "结果汇总", "降低干扰"] },
+    ],
     url: "https://github.com/Yuyz0112/claude-code-reverse",
   },
 ];
@@ -151,6 +176,7 @@ export default function Home() {
   const [repoOutlines, setRepoOutlines] = useState<Record<number, string[]>>({});
   const [outlineLoading, setOutlineLoading] = useState<number | null>(null);
   const [overviewMode, setOverviewMode] = useState<OverviewMode>("documents");
+  const [expandedDocument, setExpandedDocument] = useState<string | null>(null);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("starmate-lesson-complete");
@@ -428,13 +454,14 @@ export default function Home() {
               <div className="mode-heading"><div><p className="overline">原文视角</p><h2>一篇文档，一套独立大纲</h2></div><p>这里不混合多篇资料。每张卡片展示该仓库自己的定位、概念和 README 结构。</p></div>
               <div className="document-list">
                 {sourceDocuments.map((document, index) => (
-                  <article className="document-card" key={document.name}>
+                  <article className={`document-card ${expandedDocument === document.name ? "expanded" : ""}`} key={document.name}>
                     <div className="document-number">0{index + 1}</div>
                     <div className="document-main"><span className="relation-badge">{document.role}</span><h3>{document.name}</h3><small>{document.owner}</small><p>{document.summary}</p><div className="concept-tags">{document.concepts.map((concept) => <span key={concept}>{concept}</span>)}</div></div>
-                    <div className="document-outline"><strong>原文大纲</strong><ol>{document.outline.map((item) => <li key={item}>{item}</li>)}</ol><a href={document.url} target="_blank" rel="noreferrer">查看原文 ↗</a></div>
+                    <div className="document-outline"><strong>原文大纲</strong><ol>{document.outline.map((item) => <li key={item}>{item}</li>)}</ol><div className="document-actions"><button aria-expanded={expandedDocument === document.name} onClick={() => setExpandedDocument(expandedDocument === document.name ? null : document.name)}>{expandedDocument === document.name ? "收起详细大纲" : "查看详细大纲"}</button><a href={document.url} target="_blank" rel="noreferrer">查看原文 ↗</a></div></div>
+                    {expandedDocument === document.name && <div className="detailed-outline"><div className="reading-guide"><div><span>预计阅读</span><strong>{document.readingTime}</strong></div><div><span>阅读建议</span><strong>{document.focus}</strong></div></div><ol>{document.sections.map((section, sectionIndex) => <li key={section.title}><span>{String(sectionIndex + 1).padStart(2, "0")}</span><div><h4>{section.title}</h4><p>{section.purpose}</p><div>{section.points.map((point) => <em key={point}>{point}</em>)}</div></div></li>)}</ol><a className="start-original" href={document.url} target="_blank" rel="noreferrer">按照这个大纲阅读原文 →</a></div>}
                   </article>
                 ))}
-                {graphRepos.map((repo) => <article className="document-card imported" key={repo.id}><div className="document-number">★</div><div className="document-main"><span className="relation-badge">我的收藏</span><h3>{repo.full_name}</h3><p>{repo.description || "尚未提供简介"}</p></div><div className="document-outline"><strong>个性化拆解</strong><p>回到学习台点击“拆解大纲”，即可读取这篇 README 的真实目录。</p><a href={repo.html_url} target="_blank" rel="noreferrer">查看原文 ↗</a></div></article>)}
+                {graphRepos.map((repo) => <article className={`document-card imported ${expandedDocument === repo.full_name ? "expanded" : ""}`} key={repo.id}><div className="document-number">★</div><div className="document-main"><span className="relation-badge">我的收藏</span><h3>{repo.full_name}</h3><p>{repo.description || "尚未提供简介"}</p></div><div className="document-outline"><strong>README 大纲</strong><p>点击后读取这个仓库 README 的真实标题。</p><div className="document-actions"><button onClick={() => { const opening = expandedDocument !== repo.full_name; setExpandedDocument(opening ? repo.full_name : null); if (opening && !repoOutlines[repo.id]?.length) loadRepoOutline(repo); }}>{expandedDocument === repo.full_name ? "收起详细大纲" : "读取详细大纲"}</button><a href={repo.html_url} target="_blank" rel="noreferrer">查看原文 ↗</a></div></div>{expandedDocument === repo.full_name && <div className="detailed-outline imported-detail">{outlineLoading === repo.id ? <p>正在读取 README…</p> : <ol>{(repoOutlines[repo.id] || ["暂未读取到目录"]).map((heading, headingIndex) => <li key={`${heading}-${headingIndex}`}><span>{String(headingIndex + 1).padStart(2, "0")}</span><div><h4>{heading}</h4><p>原文 README 章节</p></div></li>)}</ol>}<a className="start-original" href={repo.html_url} target="_blank" rel="noreferrer">打开完整 README →</a></div>}</article>)}
               </div>
             </section>
           )}
