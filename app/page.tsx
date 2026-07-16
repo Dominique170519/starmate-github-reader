@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { EMBEDDED_READMES } from "./embedded-readmes";
 
 type View = "home" | "overview" | "reader" | "review";
@@ -41,6 +41,16 @@ type LessonContent = {
   answers: string[];
   correct: number;
   feedback: string;
+};
+
+type MentorMessage = {
+  id: number;
+  role: "user" | "teacher";
+  title?: string;
+  content: string;
+  quote?: string;
+  source?: string;
+  check?: { question: string; options: string[]; correct: number };
 };
 
 const lessons: Lesson[] = [
@@ -213,7 +223,10 @@ export default function Home() {
   const [companionTab, setCompanionTab] = useState<"mentor" | "notes">("mentor");
   const [noteText, setNoteText] = useState("");
   const [mentorQuestion, setMentorQuestion] = useState("");
-  const [mentorReply, setMentorReply] = useState("读到哪里卡住了？你可以让我解释当前段落、举例，或帮你整理成笔记。");
+  const [selectedText, setSelectedText] = useState("");
+  const [mentorCheckChoice, setMentorCheckChoice] = useState<number | null>(null);
+  const [mentorMessages, setMentorMessages] = useState<MentorMessage[]>([{ id: 1, role: "teacher", title: "开始伴读", content: "我会跟随你当前阅读的文章和章节。选中一段原文，或直接告诉我哪里没看懂。" }]);
+  const mentorMessageId = useRef(2);
   const [mobileReaderSurface, setMobileReaderSurface] = useState<"document" | "mentor" | "notes">("document");
   const [activeSourceSection, setActiveSourceSection] = useState(0);
 
@@ -238,6 +251,7 @@ export default function Home() {
   const readmeError = !readmeText;
   const markdownBlocks = useMemo(() => parseMarkdown(readmeText), [readmeText]);
   const readmeHeadings = useMemo(() => markdownBlocks.filter((block) => block.type === "heading" && (block.level || 1) <= 2), [markdownBlocks]);
+  const currentSectionTitle = readmeHeadings[activeSourceSection]?.text || "文章开头";
 
   useEffect(() => {
     /* eslint-disable-next-line react-hooks/set-state-in-effect -- restore device-local notebook content when switching documents */
@@ -327,6 +341,8 @@ export default function Home() {
   function openDocument(name: string) {
     setActiveDocumentName(name);
     setActiveSourceSection(0);
+    setSelectedText("");
+    setMentorMessages([{ id: mentorMessageId.current++, role: "teacher", title: "文章已切换", content: `我已经开始跟随「${name}」。选中原文或点击快捷动作，我们从当前章节继续。` }]);
     setReaderMode("original");
     setMobileReaderSurface("document");
     setView("reader");
@@ -345,11 +361,49 @@ export default function Home() {
     window.localStorage.setItem(`starmate-note-${activeDocument.name}`, value);
   }
 
-  function askMentor(question = mentorQuestion) {
-    const prompt = question.trim();
-    if (!prompt) return;
-    setMentorReply(`围绕「${activeDocument.name}」当前内容：${prompt.includes("简单") ? "先抓住一个主干——模型不是一次性回答，而是在工具结果返回后继续判断。其余细节都可以挂到这条主干上。" : prompt.includes("笔记") ? "建议记成三行：① 这一节解决什么问题；② 核心机制是什么；③ 我能否用自己的例子复述。" : "先回到当前章节标题，确认它要解决的问题，再寻找原文给出的机制或证据。我可以继续帮你把具体段落拆成白话。"}`);
+  function captureSelection() {
+    const text = window.getSelection()?.toString().replace(/\s+/g, " ").trim() || "";
+    if (text.length < 4) return;
+    setSelectedText(text.slice(0, 500));
+    setCompanionTab("mentor");
+    if (window.innerWidth <= 760) setMobileReaderSurface("mentor");
+  }
+
+  function addToNotes(text = selectedText) {
+    if (!text.trim()) return;
+    const entry = `\n\n【${currentSectionTitle}】\n原文：${text.trim()}\n我的理解：`;
+    saveNote(`${noteText}${entry}`.trimStart());
+    setCompanionTab("notes");
+    setMobileReaderSurface("notes");
+  }
+
+  function askMentor(question = mentorQuestion, action: "explain" | "example" | "guide" | "check" | "ask" = "ask") {
+    const prompt = question.trim() || (selectedText ? "请解释我选中的这段原文" : "请带我理解当前章节");
+    const id = mentorMessageId.current;
+    mentorMessageId.current += 2;
+    const replies = {
+      explain: "先抓住主干：这段内容在说明系统怎样从一次回答，变成可以持续行动、观察结果并继续判断的过程。细节都可以挂在这条主线上。",
+      example: "把它想成一位查资料的实习生：先理解任务，发现信息不够就打开文件；拿到结果后再判断下一步，直到能给出完整结论。",
+      guide: "先别急着记术语。你可以先回答：这一节想解决什么问题？作者给出了什么机制或证据？如果能用自己的话复述这两点，就已经理解了主干。",
+      check: "先不要回看原文，试着主动回忆。选完答案后，我会告诉你应该回到哪里确认。",
+      ask: prompt.includes("简单") ? "用最简单的话说：模型负责判断，工具负责行动，工具结果再交回模型继续判断。" : "我会先依据当前章节和你选中的原文回答。这里最重要的是区分作者陈述的事实、解释机制的推论，以及帮助理解的类比。",
+    };
+    const teacher: MentorMessage = { id: id + 1, role: "teacher", title: action === "check" ? "理解检查" : action === "example" ? "换个例子" : action === "guide" ? "苏格拉底引导" : "小白解释", content: replies[action], quote: selectedText || undefined, source: `${activeDocument.name} · ${currentSectionTitle}`, check: action === "check" ? { question: "Coding Agent 为什么需要把工具结果重新交给模型？", options: ["让模型看到行动结果并决定下一步", "只是为了保存运行日志", "为了重新登录 GitHub"], correct: 0 } : undefined };
+    setMentorMessages((messages) => [...messages, { id, role: "user", content: prompt }, teacher]);
+    setMentorCheckChoice(null);
     setMentorQuestion("");
+    setCompanionTab("mentor");
+  }
+
+  function renderMentorWorkspace() {
+    return <>
+      <div className="mentor-heading"><span className="mentor-avatar">✦</span><div><strong>伴读老师</strong><small>框架模式 · 围绕当前原文</small></div></div>
+      <div className="mentor-context"><span>当前上下文</span><strong>{activeDocument.name}</strong><small>{currentSectionTitle}</small>{selectedText && <><blockquote>“{selectedText.slice(0, 120)}{selectedText.length > 120 ? "…" : ""}”</blockquote><button onClick={() => addToNotes()}>+ 加入笔记</button></>}</div>
+      <div className="mentor-conversation">{mentorMessages.map((message) => <article className={`mentor-bubble ${message.role}`} key={message.id}>{message.title && <strong>{message.title}</strong>}{message.quote && <blockquote>“{message.quote.slice(0, 110)}{message.quote.length > 110 ? "…" : ""}”</blockquote>}<p>{message.content}</p>{message.source && <small>依据：{message.source}</small>}{message.check && <div className="mentor-check"><b>{message.check.question}</b>{message.check.options.map((option, index) => <button className={mentorCheckChoice === index ? (index === message.check?.correct ? "correct" : "wrong") : ""} key={option} onClick={() => setMentorCheckChoice(index)}>{String.fromCharCode(65 + index)}. {option}</button>)}{mentorCheckChoice !== null && <em>{mentorCheckChoice === message.check.correct ? "回答正确：工具结果是模型观察外部世界的新信息。" : "再想一步：模型无法直接看见工具执行后发生了什么。"}</em>}</div>}</article>)}</div>
+      <div className="mentor-actions"><button onClick={() => askMentor("解释当前内容", "explain")}><span>译</span>小白解释</button><button onClick={() => askMentor("通过提问引导我", "guide")}><span>问</span>引导思考</button><button onClick={() => askMentor("举一个容易理解的例子", "example")}><span>例</span>举个例子</button><button onClick={() => askMentor("检查我是否理解", "check")}><span>测</span>理解检查</button></div>
+      <div className="mentor-input"><input aria-label="向伴读老师提问" value={mentorQuestion} onChange={(event) => setMentorQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") askMentor(); }} placeholder="围绕当前章节提问…" /><button aria-label="发送问题" onClick={() => askMentor()}>↑</button></div>
+      <p className="grounding-note">未来接入真实模型时，将发送当前文章、章节、选中原文和最近对话</p>
+    </>;
   }
 
   async function loadRepoOutline(repo: StarredRepo) {
@@ -598,7 +652,8 @@ export default function Home() {
               {readerMode === "original" ? <>
                 <div className="reading-header"><div><p className="kicker">GitHub README · App 内阅读</p><h1>{activeDocument.name}</h1><p className="document-deck">{activeDocument.summary}</p></div><span className="reading-time">{activeDocument.readingTime}</span></div>
                 <div className="inline-companion"><span>✦</span><div><strong>伴读提示</strong><p>{activeDocument.focus} 遇到不懂的段落，可以切到右侧 AI 伴读，不会离开当前页面。</p></div></div>
-                <div className="markdown-reader" aria-live="polite">
+                {selectedText && <div className="selection-toolbar"><div><small>已选中原文</small><p>“{selectedText.slice(0, 90)}{selectedText.length > 90 ? "…" : ""}”</p></div><div><button onClick={() => { askMentor("解释这段原文", "explain"); setMobileReaderSurface("mentor"); }}>解释这段</button><button onClick={() => askMentor("为这段举一个例子", "example")}>举个例子</button><button onClick={() => addToNotes()}>加入笔记</button><button aria-label="清除选中原文" onClick={() => setSelectedText("")}>×</button></div></div>}
+                <div className="markdown-reader" aria-live="polite" onMouseUp={captureSelection} onTouchEnd={captureSelection}>
                   {readmeLoading && <div className="reader-loading">正在把 GitHub 原文带进阅读器…</div>}
                   {readmeError && <div className="reader-loading">原文暂时没有加载成功，先按下面的结构伴读。</div>}
                   {!readmeLoading && markdownBlocks.length > 0 ? markdownBlocks.map((block, index) => {
@@ -620,12 +675,12 @@ export default function Home() {
               </>}
             </article>
 
-            {mobileReaderSurface !== "document" && <section className="mobile-companion-panel">{mobileReaderSurface === "mentor" ? <><div className="mentor-heading"><span className="mentor-avatar">✦</span><div><strong>AI 伴读老师</strong><small>围绕当前原文回答</small></div></div><div className="mentor-message">{mentorReply}</div><div className="prompt-chips"><button onClick={() => askMentor("再简单一点")}>再简单一点</button><button onClick={() => askMentor("帮我整理成笔记")}>整理成笔记</button></div><div className="mentor-input"><input value={mentorQuestion} onChange={(event) => setMentorQuestion(event.target.value)} placeholder="输入你的问题…" /><button onClick={() => askMentor()}>↑</button></div></> : <><p className="overline">我的笔记</p><h2>{activeDocument.name}</h2><textarea value={noteText} onChange={(event) => saveNote(event.target.value)} placeholder="记下自己的理解、疑问和例子…" /><small>已自动保存在这台设备</small></>}</section>}
+            {mobileReaderSurface !== "document" && <section className="mobile-companion-panel">{mobileReaderSurface === "mentor" ? renderMentorWorkspace() : <><p className="overline">我的笔记</p><h2>{activeDocument.name}</h2><textarea value={noteText} onChange={(event) => saveNote(event.target.value)} placeholder="记下自己的理解、疑问和例子…" /><small>已自动保存在这台设备</small></>}</section>}
           </div>
 
           <aside className="mentor-panel">
             <div className="companion-tabs"><button className={companionTab === "mentor" ? "active" : ""} onClick={() => setCompanionTab("mentor")}>AI 伴读</button><button className={companionTab === "notes" ? "active" : ""} onClick={() => setCompanionTab("notes")}>我的笔记</button></div>
-            {companionTab === "mentor" ? <><div className="mentor-heading"><span className="mentor-avatar">✦</span><div><strong>伴读老师</strong><small>围绕当前原文回答</small></div></div><div className="mentor-message">{mentorReply}</div><div className="prompt-chips"><button onClick={() => askMentor("再简单一点")}>再简单一点</button><button onClick={() => askMentor("举一个产品例子")}>举一个产品例子</button><button onClick={() => askMentor("帮我整理成笔记")}>整理成笔记</button></div><div className="mentor-input"><input aria-label="向伴读老师提问" value={mentorQuestion} onChange={(event) => setMentorQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") askMentor(); }} placeholder="输入你的问题…" /><button aria-label="发送问题" onClick={() => askMentor()}>↑</button></div><p className="grounding-note">回答优先围绕当前仓库原文</p></> : <div className="notes-panel"><p className="overline">文档笔记</p><h3>{activeDocument.name}</h3><textarea value={noteText} onChange={(event) => saveNote(event.target.value)} placeholder="记下自己的理解、疑问和例子…" /><small>内容已自动保存在这台设备</small><button onClick={() => askMentor("帮我整理成笔记")}>✦ 请 AI 帮我整理</button></div>}
+            {companionTab === "mentor" ? renderMentorWorkspace() : <div className="notes-panel"><p className="overline">文档笔记</p><h3>{activeDocument.name}</h3><textarea value={noteText} onChange={(event) => saveNote(event.target.value)} placeholder="记下自己的理解、疑问和例子…" /><small>内容已自动保存在这台设备</small><button onClick={() => askMentor("帮我把当前笔记整理成要点")}>✦ 请 AI 帮我整理</button></div>}
           </aside>
         </div>
       )}
