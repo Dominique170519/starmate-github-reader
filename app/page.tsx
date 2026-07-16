@@ -12,6 +12,18 @@ type Lesson = {
   status: "done" | "current" | "locked";
 };
 
+type StarredRepo = {
+  id: number;
+  name: string;
+  full_name: string;
+  html_url: string;
+  description: string | null;
+  language: string | null;
+  stargazers_count: number;
+  topics?: string[];
+  updated_at: string;
+};
+
 const lessons: Lesson[] = [
   { id: 1, title: "为什么要观察 API 请求？", eyebrow: "逆向思路", minutes: 8, status: "done" },
   { id: 2, title: "Claude Code 的 Agent Loop", eyebrow: "核心概念", minutes: 12, status: "current" },
@@ -51,10 +63,19 @@ export default function Home() {
   const [lessonComplete, setLessonComplete] = useState(false);
   const [cardIndex, setCardIndex] = useState(0);
   const [cardRevealed, setCardRevealed] = useState(false);
+  const [githubUser, setGithubUser] = useState("");
+  const [starredRepos, setStarredRepos] = useState<StarredRepo[]>([]);
+  const [syncingStars, setSyncingStars] = useState(false);
+  const [starMessage, setStarMessage] = useState("");
+  const [savedRepoIds, setSavedRepoIds] = useState<number[]>([]);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("starmate-lesson-complete");
+    /* eslint-disable react-hooks/set-state-in-effect -- hydrate browser-only saved progress after mount */
     setLessonComplete(saved === "true");
+    setGithubUser(window.localStorage.getItem("starmate-github-user") || "");
+    setSavedRepoIds(JSON.parse(window.localStorage.getItem("starmate-saved-repos") || "[]"));
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
 
   const completedCount = lessonComplete ? 2 : 1;
@@ -93,6 +114,43 @@ export default function Home() {
   function rateCard() {
     setCardIndex((index) => (index + 1) % reviewCards.length);
     setCardRevealed(false);
+  }
+
+  async function syncGithubStars(event: React.FormEvent) {
+    event.preventDefault();
+    const username = githubUser.trim().replace(/^@/, "");
+    if (!/^[a-zA-Z0-9-]{1,39}$/.test(username)) {
+      setStarMessage("请输入正确的 GitHub 用户名，例如 Dominique170519");
+      return;
+    }
+
+    setSyncingStars(true);
+    setStarMessage("");
+    try {
+      const response = await fetch(`https://api.github.com/users/${encodeURIComponent(username)}/starred?per_page=30&sort=created&direction=desc`, {
+        headers: { Accept: "application/vnd.github+json" },
+      });
+      if (response.status === 404) throw new Error("没有找到这个 GitHub 用户");
+      if (response.status === 403) throw new Error("GitHub 访问次数暂时用完了，请稍后再试");
+      if (!response.ok) throw new Error("同步失败，请稍后再试");
+      const repos = (await response.json()) as StarredRepo[];
+      setStarredRepos(repos);
+      window.localStorage.setItem("starmate-github-user", username);
+      setStarMessage(repos.length ? `已同步 ${repos.length} 个最近收藏的仓库` : "这个账号还没有公开收藏的仓库");
+    } catch (error) {
+      setStarredRepos([]);
+      setStarMessage(error instanceof Error ? error.message : "同步失败，请稍后再试");
+    } finally {
+      setSyncingStars(false);
+    }
+  }
+
+  function toggleSavedRepo(repoId: number) {
+    setSavedRepoIds((current) => {
+      const next = current.includes(repoId) ? current.filter((id) => id !== repoId) : [...current, repoId];
+      window.localStorage.setItem("starmate-saved-repos", JSON.stringify(next));
+      return next;
+    });
   }
 
   return (
@@ -143,6 +201,45 @@ export default function Home() {
               <div className="floating-chip chip-one">不懂就问</div>
               <div className="floating-chip chip-two">循序渐进</div>
             </div>
+          </section>
+
+          <section className="github-source">
+            <div className="source-intro">
+              <p className="overline">技术文章主来源</p>
+              <h2>同步你的 GitHub Stars</h2>
+              <p>输入用户名即可读取公开收藏。先从仓库介绍、README 和文档中挑选值得伴读的内容。</p>
+            </div>
+            <form className="stars-form" onSubmit={syncGithubStars}>
+              <label htmlFor="github-user">GitHub 用户名</label>
+              <div>
+                <span>@</span>
+                <input id="github-user" value={githubUser} onChange={(event) => setGithubUser(event.target.value)} placeholder="Dominique170519" autoComplete="username" />
+                <button type="submit" disabled={syncingStars}>{syncingStars ? "同步中…" : "同步收藏"}</button>
+              </div>
+              <small>只读取公开数据，不需要访问令牌。未登录接口有访问频率限制。</small>
+              {starMessage && <p className="stars-message" role="status">{starMessage}</p>}
+            </form>
+            {starredRepos.length > 0 && (
+              <div className="repo-library">
+                <div className="library-heading"><strong>最近收藏</strong><span>已加入伴读 {savedRepoIds.length} 篇</span></div>
+                <div className="repo-grid">
+                  {starredRepos.map((repo) => {
+                    const saved = savedRepoIds.includes(repo.id);
+                    return (
+                      <article className="repo-card" key={repo.id}>
+                        <div className="repo-card-top"><span>{repo.language || "技术文章"}</span><span>★ {repo.stargazers_count.toLocaleString()}</span></div>
+                        <h3><a href={repo.html_url} target="_blank" rel="noreferrer">{repo.full_name}</a></h3>
+                        <p>{repo.description || "这个仓库还没有简介，可以打开 README 进一步了解。"}</p>
+                        <div className="repo-card-actions">
+                          <a href={repo.html_url} target="_blank" rel="noreferrer">查看原文 ↗</a>
+                          <button className={saved ? "saved" : ""} onClick={() => toggleSavedRepo(repo.id)}>{saved ? "✓ 已加入" : "+ 加入伴读"}</button>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </section>
 
           <section className="dashboard-grid">

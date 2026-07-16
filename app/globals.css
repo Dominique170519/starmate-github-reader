@@ -64,6 +64,34 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid 
 .chip-one { left: 2%; top: 25%; transform: rotate(-5deg); }
 .chip-two { right: 7%; bottom: 21%; transform: rotate(5deg); }
 
+.github-source { margin-top: 24px; padding: 30px; background: var(--card); border: 1px solid var(--line); border-radius: 22px; }
+.source-intro { display: grid; grid-template-columns: 1fr 1.2fr; column-gap: 28px; align-items: end; }
+.source-intro .overline { grid-column: 1 / -1; }
+.source-intro h2 { margin: 0; font: 500 28px/1.2 Georgia, "Songti SC", serif; }
+.source-intro > p:last-child { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.7; }
+.stars-form { margin-top: 24px; padding: 18px; background: #f1ede5; border-radius: 15px; }
+.stars-form label { display: block; margin-bottom: 8px; font-size: 10px; font-weight: 800; color: var(--muted); }
+.stars-form > div { display: flex; align-items: center; padding: 5px 5px 5px 14px; background: white; border: 1px solid var(--line); border-radius: 12px; }
+.stars-form > div > span { color: var(--muted); font-weight: 800; }
+.stars-form input { flex: 1; min-width: 0; border: 0; outline: 0; padding: 10px 6px; background: transparent; }
+.stars-form button { border: 0; padding: 11px 16px; border-radius: 9px; background: var(--ink); color: white; font-weight: 800; cursor: pointer; }
+.stars-form button:disabled { opacity: .6; }
+.stars-form small { display: block; margin-top: 8px; color: var(--muted); font-size: 9px; }
+.stars-message { margin: 8px 0 0; color: var(--purple); font-size: 11px; font-weight: 700; }
+.repo-library { margin-top: 26px; }
+.library-heading { display: flex; justify-content: space-between; align-items: center; margin-bottom: 13px; font-size: 13px; }
+.library-heading span { color: var(--muted); font-size: 10px; }
+.repo-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.repo-card { display: flex; flex-direction: column; min-height: 190px; padding: 17px; border: 1px solid var(--line); border-radius: 15px; background: white; }
+.repo-card-top { display: flex; justify-content: space-between; color: var(--muted); font-size: 9px; }
+.repo-card h3 { margin: 12px 0 8px; font-size: 14px; overflow-wrap: anywhere; }
+.repo-card h3 a { color: var(--ink); text-decoration: none; }
+.repo-card > p { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.65; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.repo-card-actions { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: auto; padding-top: 16px; }
+.repo-card-actions a { color: var(--muted); font-size: 9px; text-decoration: none; }
+.repo-card-actions button { border: 1px solid var(--purple); background: transparent; color: var(--purple); border-radius: 8px; padding: 7px 9px; font-size: 9px; font-weight: 800; cursor: pointer; }
+.repo-card-actions button.saved { background: var(--purple); color: white; }
+
 .dashboard-grid { display: grid; grid-template-columns: 1fr 330px; gap: 22px; margin-top: 24px; }
 .continue-card, .review-widget, .feature-card { background: var(--card); border: 1px solid var(--line); border-radius: 22px; }
 .continue-card { padding: 30px; }
@@ -169,6 +197,7 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid 
   .reader-layout { grid-template-columns: 220px minmax(0, 1fr); }
   .mentor-panel { display: none; }
   .hero-card { grid-template-columns: 1fr .55fr; }.hero-copy { padding-left: 42px; }.book-shape { width: 230px; }
+  .repo-grid { grid-template-columns: repeat(2, 1fr); }
 }
 
 @media (max-width: 760px) {
@@ -176,6 +205,7 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid 
   .page { width: min(92vw, 620px); }.home-page { padding: 18px 0 90px; }
   .hero-card { min-height: auto; display: block; border-radius: 20px; }.hero-copy { padding: 32px 22px 30px; }.hero-copy h1 { font-size: 34px; }.hero-copy h1 br { display: none; }.hero-sub { font-size: 13px; line-height: 1.7; }
   .hero-visual { display: none; }.import-form { display: grid; grid-template-columns: 34px 1fr; }.import-form button { grid-column: 1 / -1; width: 100%; }.hero-meta { gap: 10px; flex-wrap: wrap; font-size: 9px; }
+  .github-source { padding: 22px 18px; }.source-intro { display: block; }.source-intro h2 { font-size: 24px; }.source-intro > p:last-child { margin-top: 10px; }.stars-form { padding: 13px; }.stars-form > div { display: grid; grid-template-columns: 18px 1fr; }.stars-form button { grid-column: 1 / -1; width: 100%; }.repo-grid { grid-template-columns: 1fr; }.repo-card { min-height: 170px; }
   .dashboard-grid { grid-template-columns: 1fr; }.continue-card { padding: 22px 18px; }.section-heading { display: block; }.course-badge { display: inline-block; margin-top: 10px; }.course-stats { justify-content: space-between; gap: 8px; font-size: 9px; }.current-lesson { padding: 13px; }.review-widget { padding: 22px; }
   .how-section { margin-top: 38px; }.feature-row { grid-template-columns: 1fr 1fr; }.feature-card { min-height: 190px; padding: 20px; }
   .reader-layout { display: block; }.lesson-sidebar { display: none; }.reading-pane { padding: 30px 20px 100px; }.reading-header { display: block; }.reading-header h1 { font-size: 31px; }.reading-time { display: block; margin-top: 10px; }.source-card { margin: 25px 0; padding: 17px; }.source-label { align-items: center; }.source-card blockquote { font-size: 14px; }.explain-section > h2 { font-size: 23px; }.loop-diagram { padding: 14px 8px; }.loop-diagram small { display: none; }.loop-diagram b { font-size: 13px; }.analogy-card { padding: 17px; }.finish-button { width: 100%; }
