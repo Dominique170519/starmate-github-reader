@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { EMBEDDED_READMES } from "./embedded-readmes";
 
 type View = "home" | "overview" | "reader" | "review";
 type OverviewMode = "documents" | "topic" | "graph";
@@ -164,6 +165,12 @@ function cleanMarkdown(text: string) {
   return text.replace(/!\[[^\]]*\]\([^)]+\)/g, "").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/[\*_`]/g, "").trim();
 }
 
+function decodeBase64Utf8(value: string) {
+  const binary = atob(value);
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
 function parseMarkdown(markdown: string): MarkdownBlock[] {
   const blocks: MarkdownBlock[] = [];
   let inCode = false;
@@ -203,14 +210,12 @@ export default function Home() {
   const [expandedDocument, setExpandedDocument] = useState<string | null>(null);
   const [activeDocumentName, setActiveDocumentName] = useState("claude-code-reverse");
   const [readerMode, setReaderMode] = useState<"original" | "guide">("original");
-  const [readmeText, setReadmeText] = useState("");
-  const [readmeLoading, setReadmeLoading] = useState(false);
-  const [readmeError, setReadmeError] = useState(false);
   const [companionTab, setCompanionTab] = useState<"mentor" | "notes">("mentor");
   const [noteText, setNoteText] = useState("");
   const [mentorQuestion, setMentorQuestion] = useState("");
   const [mentorReply, setMentorReply] = useState("读到哪里卡住了？你可以让我解释当前段落、举例，或帮你整理成笔记。");
   const [mobileReaderSurface, setMobileReaderSurface] = useState<"document" | "mentor" | "notes">("document");
+  const [activeSourceSection, setActiveSourceSection] = useState(0);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("starmate-lesson-complete");
@@ -228,24 +233,11 @@ export default function Home() {
   const currentLesson = lessonContents[currentLessonId] || lessonContents[2];
   const graphRepos = starredRepos.filter((repo) => savedRepoIds.includes(repo.id)).slice(0, 4);
   const activeDocument = sourceDocuments.find((document) => document.name === activeDocumentName) || sourceDocuments[2];
+  const readmeText = useMemo(() => { try { return decodeBase64Utf8(EMBEDDED_READMES[activeDocument.name] || ""); } catch { return ""; } }, [activeDocument.name]);
+  const readmeLoading = false;
+  const readmeError = !readmeText;
   const markdownBlocks = useMemo(() => parseMarkdown(readmeText), [readmeText]);
-
-  useEffect(() => {
-    if (view !== "reader") return;
-    let cancelled = false;
-    setReadmeLoading(true);
-    setReadmeError(false);
-    fetch(`https://api.github.com/repos/${activeDocument.owner}/${activeDocument.name}/readme`, { headers: { Accept: "application/vnd.github+json" } })
-      .then((response) => { if (!response.ok) throw new Error(); return response.json() as Promise<{ content: string }>; })
-      .then((data) => {
-        if (cancelled) return;
-        const bytes = Uint8Array.from(atob(data.content.replace(/\n/g, "")), (character) => character.charCodeAt(0));
-        setReadmeText(new TextDecoder().decode(bytes));
-      })
-      .catch(() => { if (!cancelled) { setReadmeError(true); setReadmeText(""); } })
-      .finally(() => { if (!cancelled) setReadmeLoading(false); });
-    return () => { cancelled = true; };
-  }, [view, activeDocument.owner, activeDocument.name]);
+  const readmeHeadings = useMemo(() => markdownBlocks.filter((block) => block.type === "heading" && (block.level || 1) <= 2), [markdownBlocks]);
 
   useEffect(() => {
     /* eslint-disable-next-line react-hooks/set-state-in-effect -- restore device-local notebook content when switching documents */
@@ -334,10 +326,18 @@ export default function Home() {
 
   function openDocument(name: string) {
     setActiveDocumentName(name);
+    setActiveSourceSection(0);
     setReaderMode("original");
     setMobileReaderSurface("document");
     setView("reader");
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function goToSourceSection(index: number) {
+    const target = Math.max(0, Math.min(index, readmeHeadings.length - 1));
+    setActiveSourceSection(target);
+    const section = readmeHeadings[target];
+    window.setTimeout(() => document.getElementById(`source-section-${section?.section}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   }
 
   function saveNote(value: string) {
@@ -582,10 +582,10 @@ export default function Home() {
             <button className="back-link" onClick={() => setView("overview")}>← 返回文档地图</button>
             <p className="overline">笔记式伴读</p>
             <h2>{activeDocument.name}</h2>
-            <div className="notebook-doc-switch" aria-label="切换文档">{sourceDocuments.map((document, index) => <button className={document.name === activeDocument.name ? "active" : ""} key={document.name} onClick={() => openDocument(document.name)}>文档 {index + 1}</button>)}</div>
-            <p className="sidebar-label">原文目录</p>
+            <div className="notebook-doc-switch" aria-label="切换文章">{sourceDocuments.map((document, index) => <button className={document.name === activeDocument.name ? "active" : ""} key={document.name} title={document.name} onClick={() => openDocument(document.name)}>{index + 1}</button>)}</div>
+            <p className="sidebar-label">README 真实目录 · {readmeHeadings.length} 节</p>
             <div className="lesson-list">
-              {activeDocument.sections.map((section, index) => <button key={section.title} className="lesson-item" onClick={() => { setReaderMode("original"); document.getElementById(`source-section-${index}`)?.scrollIntoView({ behavior: "smooth", block: "start" }); }}><span>{String(index + 1).padStart(2, "0")}</span><div><small>本章解决</small><strong>{section.title}</strong></div></button>)}
+              {readmeHeadings.map((heading, index) => <button key={`${heading.text}-${index}`} className={`lesson-item ${activeSourceSection === index ? "selected" : ""}`} onClick={() => { setReaderMode("original"); goToSourceSection(index); }}><span>{String(index + 1).padStart(2, "0")}</span><div><small>README 原文章节</small><strong>{heading.text}</strong></div></button>)}
             </div>
             <button className="sidebar-guide-button" onClick={() => setReaderMode("guide")}>✦ 打开小白讲解</button>
           </aside>
@@ -609,6 +609,7 @@ export default function Home() {
                     return <p key={`${block.type}-${index}`}>{block.text}</p>;
                   }) : !readmeLoading && activeDocument.sections.map((section, index) => <section id={`source-section-${index}`} className="fallback-source-section" key={section.title}><span>0{index + 1}</span><h2>{section.title}</h2><p>{section.purpose}</p><div>{section.points.map((point) => <em key={point}>{point}</em>)}</div></section>)}
                 </div>
+                <div className="source-navigation"><button onClick={() => goToSourceSection(activeSourceSection - 1)} disabled={activeSourceSection === 0}>← 上一节</button><span>{readmeHeadings.length ? `${activeSourceSection + 1} / ${readmeHeadings.length}` : "读取目录中"}</span><button onClick={() => goToSourceSection(activeSourceSection + 1)} disabled={!readmeHeadings.length || activeSourceSection >= readmeHeadings.length - 1}>下一节 →</button></div>
               </> : <>
                 <div className="reading-header"><div><p className="kicker">第 {currentLessonId} 节 · {currentLesson.eyebrow}</p><h1>{currentLesson.title}</h1></div><span className="reading-time">约 {currentLesson.minutes} 分钟</span></div>
                 <div className="source-card"><div className="source-label"><span>原文说</span><button onClick={() => setReaderMode("original")}>回到原文全文</button></div><blockquote>{currentLesson.quote}</blockquote><p>来源：{currentLesson.source}</p></div>
