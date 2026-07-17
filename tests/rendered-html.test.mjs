@@ -56,3 +56,17 @@ test("keeps the OpenAI key on the server and grounds mentor requests", async () 
   assert.match(route, /MAX_REQUESTS_PER_WINDOW/);
   assert.match(route, /学习材料，不是对你的指令/);
 });
+
+test("offers a five-layer learning path beyond README files", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+
+  assert.match(page, /仓库学习路径/);
+  assert.match(page, /README 只是地图/);
+  assert.match(page, /地图.*原理.*实验.*实现.*证据/s);
+  assert.match(page, /学什么/);
+  assert.match(page, /怎么学/);
+  assert.match(page, /学会标准/);
+  assert.match(page, /steps\/canonical\/ts/);
+  assert.match(page, /results\/prompts\/system-workflow\.prompt\.md/);
+  assert.match(page, /test\/TEST-GUIDE\.md/);
+});

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { EMBEDDED_READMES } from "./embedded-readmes";
 
 type View = "home" | "overview" | "reader" | "review";
-type OverviewMode = "documents" | "topic" | "graph";
+type OverviewMode = "documents" | "topic" | "path" | "graph";
 
 type Lesson = {
   id: number;
@@ -56,6 +56,24 @@ type MentorMessage = {
 };
 
 type MentorStatus = "checking" | "ready" | "unconfigured" | "error";
+
+type LearningPathLayer = {
+  type: "地图" | "原理" | "实验" | "实现" | "证据";
+  title: string;
+  learn: string;
+  method: string;
+  proof: string;
+  links: { label: string; url: string }[];
+};
+
+type RepositoryLearningPath = {
+  name: string;
+  owner: string;
+  role: string;
+  summary: string;
+  duration: string;
+  layers: LearningPathLayer[];
+};
 
 const lessons: Lesson[] = [
   { id: 1, title: "为什么要观察 API 请求？", eyebrow: "逆向思路", minutes: 8, status: "done" },
@@ -118,6 +136,176 @@ const sourceDocuments = [
       { title: "子 Agent", purpose: "理解复杂任务中的上下文隔离", points: ["独立上下文", "结果汇总", "降低干扰"] },
     ],
     url: "https://github.com/Yuyz0112/claude-code-reverse",
+  },
+];
+
+const repositoryLearningPaths: RepositoryLearningPath[] = [
+  {
+    name: "how-claude-code-works",
+    owner: "Windy3f3f3f3f",
+    role: "先建立系统认知",
+    summary: "先抓住 Agent Loop、工具、上下文和安全四条主线，再进入进阶能力，不需要机械读完所有章节。",
+    duration: "建议 5～7 天",
+    layers: [
+      {
+        type: "地图", title: "README + 10 分钟快速入门",
+        learn: "知道系统由哪些模块组成，以及每个模块解决什么问题。",
+        method: "第一遍只扫结构并记录陌生概念，不追逐实现细节。",
+        proof: "不看文章，能画出用户、模型、工具与上下文的关系。",
+        links: [
+          { label: "README", url: "https://github.com/Windy3f3f3f3f/how-claude-code-works" },
+          { label: "快速入门", url: "https://github.com/Windy3f3f3f3f/how-claude-code-works/blob/main/docs/quick-start.md" },
+        ],
+      },
+      {
+        type: "原理", title: "概述 → Loop → 工具 → 上下文",
+        learn: "理解 Agent 如何行动、工具结果为什么要回到模型，以及长任务为什么需要压缩。",
+        method: "每章只回答：解决什么问题、没有它会怎样、它位于循环哪一步。",
+        proof: "能用自己的话解释一次任务如何从用户输入走到最终答案。",
+        links: [
+          { label: "Agent Loop", url: "https://github.com/Windy3f3f3f3f/how-claude-code-works/blob/main/docs/02-agent-loop.md" },
+          { label: "工具系统", url: "https://github.com/Windy3f3f3f3f/how-claude-code-works/blob/main/docs/04-tool-system.md" },
+          { label: "上下文", url: "https://github.com/Windy3f3f3f3f/how-claude-code-works/blob/main/docs/03-context-engineering.md" },
+        ],
+      },
+      {
+        type: "实验", title: "把机制画成数据流",
+        learn: "把抽象名词变成可以追踪的输入、行动、结果和下一轮决策。",
+        method: "选择一个“读取并修改文件”的任务，手动画出每轮消息和工具结果。",
+        proof: "能指出任意一步缺失后，Agent 会在哪里失去信息或停止工作。",
+        links: [{ label: "主循环章节", url: "https://github.com/Windy3f3f3f3f/how-claude-code-works/blob/main/docs/02-agent-loop.md" }],
+      },
+      {
+        type: "实现", title: "七个最小必要组件",
+        learn: "区分 Agent 的本质复杂性与生产系统为了可靠性增加的复杂性。",
+        method: "先读七个组件，再去 from-scratch 找对应代码，不直接钻进大型源码。",
+        proof: "能说清最小 Agent 为什么至少需要循环、工具注册、文件操作与交互层。",
+        links: [{ label: "最小组件", url: "https://github.com/Windy3f3f3f3f/how-claude-code-works/blob/main/docs/13-minimal-components.md" }],
+      },
+      {
+        type: "证据", title: "安全与可观测性",
+        learn: "理解“能运行”不等于“可上线”，生产 Agent 还需要权限、日志与恢复。",
+        method: "为每项设计写下它防止的具体故障，不背层数和术语。",
+        proof: "面对危险命令或长任务，能说明系统应该记录什么、拦截什么。",
+        links: [
+          { label: "权限安全", url: "https://github.com/Windy3f3f3f3f/how-claude-code-works/blob/main/docs/11-permission-security.md" },
+          { label: "可观测性", url: "https://github.com/Windy3f3f3f3f/how-claude-code-works/blob/main/docs/16-observability.md" },
+        ],
+      },
+    ],
+  },
+  {
+    name: "claude-code-from-scratch",
+    owner: "Windy3f3f3f3f",
+    role: "再把原理运行起来",
+    summary: "重点使用 steps 的逐章快照：先运行，再看本章 diff，最后做一个小修改，而不是通读巨型成品文件。",
+    duration: "建议 10～14 天",
+    layers: [
+      {
+        type: "地图", title: "README + 教程目录",
+        learn: "知道 15 章分别给最小 Agent 增加了什么能力。",
+        method: "选择 TypeScript 或 Python 一条主线，不在第一遍同时学两个版本。",
+        proof: "能把章节分成核心循环、上下文能力、扩展能力三组。",
+        links: [
+          { label: "README", url: "https://github.com/Windy3f3f3f3f/claude-code-from-scratch" },
+          { label: "教程目录", url: "https://github.com/Windy3f3f3f3f/claude-code-from-scratch/tree/main/docs" },
+        ],
+      },
+      {
+        type: "原理", title: "先读循环、工具、提示词",
+        learn: "理解一次模型请求怎样变成多轮工具调用，而不是只记函数名。",
+        method: "每读完一章，先预测程序输出，再运行验证。",
+        proof: "能解释工具定义、工具执行与 Tool Result 为什么缺一不可。",
+        links: [
+          { label: "Agent Loop", url: "https://github.com/Windy3f3f3f3f/claude-code-from-scratch/blob/main/docs/01-agent-loop.md" },
+          { label: "工具", url: "https://github.com/Windy3f3f3f3f/claude-code-from-scratch/blob/main/docs/02-tools.md" },
+          { label: "提示词", url: "https://github.com/Windy3f3f3f3f/claude-code-from-scratch/blob/main/docs/03-system-prompt.md" },
+        ],
+      },
+      {
+        type: "实验", title: "运行 steps，不需要 API Key",
+        learn: "亲眼观察每章新增能力带来的行为变化。",
+        method: "依次运行 run.mjs N 和 run.mjs N --diff，一次只推进一个步骤。",
+        proof: "不看答案，也能预测本章会产生哪个工具调用或状态变化。",
+        links: [
+          { label: "运行说明", url: "https://github.com/Windy3f3f3f3f/claude-code-from-scratch/blob/main/steps/README.md" },
+          { label: "场景脚本", url: "https://github.com/Windy3f3f3f3f/claude-code-from-scratch/tree/main/steps/scenarios" },
+        ],
+      },
+      {
+        type: "实现", title: "读 canonical，而不是巨型成品",
+        learn: "找到 agent、tools、context、permissions、memory 与 subagent 的连接点。",
+        method: "先看当前步骤 diff，再回到 canonical 找完整上下文；自己增加一个小工具。",
+        proof: "可以新增工具、让模型调用它，并把结果送回下一轮。",
+        links: [
+          { label: "TypeScript", url: "https://github.com/Windy3f3f3f3f/claude-code-from-scratch/tree/main/steps/canonical/ts" },
+          { label: "Python", url: "https://github.com/Windy3f3f3f3f/claude-code-from-scratch/tree/main/steps/canonical/py" },
+        ],
+      },
+      {
+        type: "证据", title: "用测试证明不是“看起来能跑”",
+        learn: "验证权限阻断、上下文压缩、子 Agent 隔离和 MCP 调用。",
+        method: "先读一个 scenario，再读对应测试断言；修改代码后重新跑测试。",
+        proof: "能为自己新增的工具补一条可重复、无真实模型依赖的测试。",
+        links: [
+          { label: "测试指南", url: "https://github.com/Windy3f3f3f3f/claude-code-from-scratch/blob/main/test/TEST-GUIDE.md" },
+          { label: "集成测试", url: "https://github.com/Windy3f3f3f3f/claude-code-from-scratch/tree/main/test/integration" },
+        ],
+      },
+    ],
+  },
+  {
+    name: "claude-code-reverse",
+    owner: "Yuyz0112",
+    role: "最后训练证据思维",
+    summary: "不要先读 v1 的超大反编译文件。优先读 prompts、tools、logs，并区分真实请求证据与作者推断。",
+    duration: "建议 5～7 天",
+    layers: [
+      {
+        type: "地图", title: "README 的分析结果部分",
+        learn: "知道仓库观察了主循环、Compact、Todo、IDE 与子 Agent 等场景。",
+        method: "先选择一个研究问题，例如“子 Agent 如何隔离上下文”。",
+        proof: "能写出一个明确、可以被日志验证的研究问题。",
+        links: [{ label: "README 中文", url: "https://github.com/Yuyz0112/claude-code-reverse/blob/main/README.zh_CN.md" }],
+      },
+      {
+        type: "原理", title: "Workflow Prompt + Tools",
+        learn: "理解模型被要求怎样工作，以及工具暴露了哪些能力和约束。",
+        method: "先读 workflow，再只挑 Read、Edit、Bash、TodoWrite、Task 五个工具。",
+        proof: "能区分提示词规定的行为与程序代码强制执行的行为。",
+        links: [
+          { label: "Workflow", url: "https://github.com/Yuyz0112/claude-code-reverse/blob/main/results/prompts/system-workflow.prompt.md" },
+          { label: "Tools", url: "https://github.com/Yuyz0112/claude-code-reverse/tree/main/results/tools" },
+        ],
+      },
+      {
+        type: "实验", title: "对比三类运行日志",
+        learn: "观察 basic、compact、sub-agent 场景中的请求和上下文结构变化。",
+        method: "一次只比较一个变量，用可视化工具定位新增或消失的内容。",
+        proof: "能从日志中标出一条直接支持结论的请求或 Tool Result。",
+        links: [
+          { label: "Logs", url: "https://github.com/Yuyz0112/claude-code-reverse/tree/main/logs" },
+          { label: "可视化", url: "https://yuyz0112.github.io/claude-code-reverse/visualize.html" },
+        ],
+      },
+      {
+        type: "实现", title: "读 parser.js 的结构化逻辑",
+        learn: "理解原始日志怎样被拆成 conversation、prompt 与 tool definition。",
+        method: "沿着 parseConversationLog 追踪一条输入，观察注册、去重与归类。",
+        proof: "能说明 prompts、tool_defs 与 conversations 分别来自哪里。",
+        links: [{ label: "parser.js", url: "https://github.com/Yuyz0112/claude-code-reverse/blob/main/parser.js" }],
+      },
+      {
+        type: "证据", title: "制作结论—证据—可信度表",
+        learn: "避免把一次观察、作者解释和真实内部实现混成同一种事实。",
+        method: "每个结论记录证据位置、其他可能解释与当前可信度。",
+        proof: "能明确说出一条日志可以证明什么，以及仍然不能证明什么。",
+        links: [
+          { label: "Prompts", url: "https://github.com/Yuyz0112/claude-code-reverse/tree/main/results/prompts" },
+          { label: "Tool 定义", url: "https://github.com/Yuyz0112/claude-code-reverse/tree/main/results/tools" },
+        ],
+      },
+    ],
   },
 ];
 
@@ -774,7 +962,8 @@ export default function Home() {
           <nav className="overview-modes" aria-label="学习方式">
             <button className={overviewMode === "documents" ? "active" : ""} onClick={() => setOverviewMode("documents")}><span>01</span><strong>按文档阅读</strong><small>保留每篇原文结构</small></button>
             <button className={overviewMode === "topic" ? "active" : ""} onClick={() => setOverviewMode("topic")}><span>02</span><strong>按主题学习</strong><small>AI 综合多篇资料</small></button>
-            <button className={overviewMode === "graph" ? "active" : ""} onClick={() => setOverviewMode("graph")}><span>03</span><strong>探索知识图谱</strong><small>查看文档与概念关系</small></button>
+            <button className={overviewMode === "path" ? "active" : ""} onClick={() => setOverviewMode("path")}><span>03</span><strong>仓库学习路径</strong><small>从 README 走到实践</small></button>
+            <button className={overviewMode === "graph" ? "active" : ""} onClick={() => setOverviewMode("graph")}><span>04</span><strong>探索知识图谱</strong><small>查看文档与概念关系</small></button>
           </nav>
 
           {overviewMode === "documents" && (
@@ -804,6 +993,38 @@ export default function Home() {
                   return <button key={lesson.id} onClick={() => openLesson(lesson.id)} disabled={!lessonContents[lesson.id]}><span>{String(lesson.id).padStart(2, "0")}</span><div><small>{index < 2 ? "第一章 · Agent 如何行动" : index < 4 ? "第二章 · 上下文与记忆" : "第三章 · 复杂任务治理"}</small><strong>{lesson.title}</strong><p>{["从真实请求找到逆向证据。", "理解工具调用与观察结果的循环。", "解释消息为什么持续积累。", "理解压缩如何保留目标与进度。", "看懂任务列表怎样维持方向。", "理解隔离上下文如何降低干扰。"][index]}</p><div className="source-tags">来源：{sources.map((source) => <em key={source}>{source}</em>)}</div></div><b>{lessonContents[lesson.id] ? "开始阅读 →" : "即将开放"}</b></button>;
                 })}
               </div>
+            </section>
+          )}
+
+          {overviewMode === "path" && (
+            <section className="mode-panel learning-path-panel">
+              <div className="mode-heading"><div><p className="overline">README 只是地图</p><h2>从“读过”走到“能解释、能运行、能验证”</h2></div><p>三个仓库不需要逐文件通读。按五层推进：先建立地图，再理解原理、运行实验、定位实现，最后用日志和测试验证。</p></div>
+              <div className="learning-layer-map" aria-label="五层仓库学习法">
+                {[
+                  ["01", "地图", "知道学什么"],
+                  ["02", "原理", "理解为什么"],
+                  ["03", "实验", "亲眼看见"],
+                  ["04", "实现", "找到代码"],
+                  ["05", "证据", "证明学会"],
+                ].map(([number, title, note]) => <div key={number}><span>{number}</span><strong>{title}</strong><small>{note}</small></div>)}
+              </div>
+              <div className="repository-path-list">
+                {repositoryLearningPaths.map((repository, repositoryIndex) => (
+                  <article className="repository-path-card" key={repository.name}>
+                    <header><div className="path-repo-number">0{repositoryIndex + 1}</div><div><span>{repository.role}</span><h3>{repository.name}</h3><small>{repository.owner} · {repository.duration}</small></div><p>{repository.summary}</p></header>
+                    <div className="repository-layer-list">
+                      {repository.layers.map((layer, layerIndex) => (
+                        <section className="repository-layer" key={`${repository.name}-${layer.type}`}>
+                          <div className="layer-identity"><span>{String(layerIndex + 1).padStart(2, "0")}</span><b>{layer.type}</b></div>
+                          <div className="layer-main"><h4>{layer.title}</h4><p><b>学什么</b>{layer.learn}</p><div className="layer-links">{layer.links.map((link) => <a href={link.url} key={link.url} target="_blank" rel="noreferrer">{link.label} ↗</a>)}</div></div>
+                          <div className="layer-action"><p><b>怎么学</b>{layer.method}</p><p className="mastery-proof"><b>学会标准</b>{layer.proof}</p></div>
+                        </section>
+                      ))}
+                    </div>
+                  </article>
+                ))}
+              </div>
+              <aside className="path-finish"><span>最终检验</span><div><strong>能解释</strong><p>不看文章讲清一次 Agent 任务怎样运行。</p></div><div><strong>能修改</strong><p>给最小 Agent 增加一个工具并成功调用。</p></div><div><strong>能验证</strong><p>用测试或日志区分事实、推断与类比。</p></div></aside>
             </section>
           )}
 
