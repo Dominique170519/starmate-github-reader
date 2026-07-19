@@ -29,11 +29,11 @@ test("server-renders the StarMate learning workspace", async () => {
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>星伴读｜把 GitHub 收藏变成真正学会的课程<\/title>/i);
+  assert.match(html, /<title>星伴读｜让 GitHub 收藏持续生长<\/title>/i);
   assert.match(html, /你的 GitHub 收藏，不再吃灰/);
   assert.match(html, /同步你的 GitHub Stars/);
-  assert.match(html, /先看全局地图/);
-  assert.match(html, /AI Agent 入门/);
+  assert.match(html, /动态学习地图/);
+  assert.match(html, /无痛式入门/);
 });
 
 test("keeps the OpenAI key on the server and grounds mentor requests", async () => {
@@ -61,7 +61,7 @@ test("offers a five-layer learning path beyond README files", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
 
   assert.match(page, /仓库学习路径/);
-  assert.match(page, /README 只是地图/);
+  assert.match(page, /适用于每个新收藏/);
   assert.match(page, /地图.*原理.*实验.*实现.*证据/s);
   assert.match(page, /学什么/);
   assert.match(page, /怎么学/);
@@ -69,4 +69,28 @@ test("offers a five-layer learning path beyond README files", async () => {
   assert.match(page, /steps\/canonical\/ts/);
   assert.match(page, /results\/prompts\/system-workflow\.prompt\.md/);
   assert.match(page, /test\/TEST-GUIDE\.md/);
+});
+
+test("grows the learning map from saved repositories", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+
+  assert.match(page, /持续生长的学习库/);
+  assert.match(page, /收藏持续增长，地图持续更新/);
+  assert.match(page, /selectedRepos/);
+  assert.match(page, /topicGroups/);
+  assert.match(page, /buildGrowingRepositoryLayers/);
+  assert.match(page, /加入至少两个收藏后/);
+  assert.match(page, /内置的三篇文章只是第一次使用的示范/);
+});
+
+test("offers a painless beginner path for nontechnical readers", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+
+  assert.match(page, /无痛式技术入门/);
+  assert.match(page, /先喜欢上技术，再慢慢学技术/);
+  assert.match(page, /看懂 AI 产品/);
+  assert.match(page, /做第一个小工具/);
+  assert.match(page, /探索技术岗位/);
+  assert.match(page, /技术词先翻译成人话/);
+  assert.match(page, /15 分钟/);
 });

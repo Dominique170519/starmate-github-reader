@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { EMBEDDED_READMES } from "./embedded-readmes";
 
-type View = "home" | "overview" | "reader" | "review";
+type View = "home" | "beginner" | "overview" | "reader" | "review";
 type OverviewMode = "documents" | "topic" | "path" | "graph";
 
 type Lesson = {
@@ -74,6 +74,57 @@ type RepositoryLearningPath = {
   duration: string;
   layers: LearningPathLayer[];
 };
+
+type BeginnerTrack = {
+  id: "product" | "maker" | "career";
+  label: string;
+  title: string;
+  promise: string;
+  mission: string;
+  stages: { title: string; duration: string; action: string; result: string }[];
+};
+
+const beginnerTracks: BeginnerTrack[] = [
+  {
+    id: "product",
+    label: "看懂 AI 产品",
+    title: "从一次真实体验，认识 AI Agent",
+    promise: "不写代码，也能看懂一个 AI 产品为什么会调用工具、记住上下文并完成任务。",
+    mission: "让 AI 帮你整理一份资料，并观察它做了哪几步。",
+    stages: [
+      { title: "先玩一次", duration: "3 分钟", action: "观察一个 Agent 完成小任务", result: "先看到技术能做什么" },
+      { title: "翻译术语", duration: "4 分钟", action: "把 Agent、Tool、Context 换成生活语言", result: "认识 3 个核心概念" },
+      { title: "拆开看看", duration: "5 分钟", action: "按输入—行动—结果复盘过程", result: "第一次看懂工作原理" },
+      { title: "说给别人", duration: "3 分钟", action: "用自己的话完成一道解释题", result: "获得第一张掌握卡" },
+    ],
+  },
+  {
+    id: "maker",
+    label: "做第一个小工具",
+    title: "从需求出发，做出最小可用作品",
+    promise: "先用现成工具做出结果，再逐步认识接口、数据和代码，不从语法课开始。",
+    mission: "做一个能总结 GitHub README 的个人小助手。",
+    stages: [
+      { title: "选一个痛点", duration: "3 分钟", action: "把模糊想法改成一句任务", result: "得到清晰需求" },
+      { title: "拼出流程", duration: "4 分钟", action: "连接输入、AI 处理和输出", result: "看见产品骨架" },
+      { title: "改一个变量", duration: "5 分钟", action: "调整提示词或输出格式", result: "完成第一次技术修改" },
+      { title: "分享作品", duration: "3 分钟", action: "写下用途、过程和下一步", result: "形成可展示的小项目" },
+    ],
+  },
+  {
+    id: "career",
+    label: "探索技术岗位",
+    title: "从工作场景，认识技术型业务岗位",
+    promise: "不先背岗位名，先体验产品、解决方案和数据岗位每天在解决什么问题。",
+    mission: "完成一次“客户需求 → 技术方案 → 结果说明”的迷你演练。",
+    stages: [
+      { title: "进入场景", duration: "3 分钟", action: "读一个真实业务问题", result: "知道岗位为何存在" },
+      { title: "做个判断", duration: "4 分钟", action: "选择需求、方案和风险", result: "体验技术沟通" },
+      { title: "认识工具", duration: "5 分钟", action: "看懂 API、数据库和模型的分工", result: "建立能力地图" },
+      { title: "留下证据", duration: "3 分钟", action: "生成一条项目经历表达", result: "形成求职素材" },
+    ],
+  },
+];
 
 const lessons: Lesson[] = [
   { id: 1, title: "为什么要观察 API 请求？", eyebrow: "逆向思路", minutes: 8, status: "done" },
@@ -501,6 +552,16 @@ function parseMarkdown(markdown: string): MarkdownBlock[] {
   return blocks;
 }
 
+function buildGrowingRepositoryLayers(repoUrl: string): LearningPathLayer[] {
+  return [
+    { type: "地图", title: "README、目录与项目定位", learn: "知道这个仓库解决什么问题、适合谁，以及主要内容放在哪里。", method: "第一遍只扫标题、示例和目录，先写下一句自己的理解。", proof: "不用原文，能在 60 秒内说清项目价值。", links: [{ label: "打开仓库", url: repoUrl }] },
+    { type: "原理", title: "找到 3 个核心概念", learn: "从文档中识别最重要的概念，以及它们之间的因果关系。", method: "遇到术语先翻译成生活语言，再回到原文确认是否准确。", proof: "能用一个例子解释三个概念怎样协同。", links: [{ label: "查看 README", url: `${repoUrl}#readme` }] },
+    { type: "实验", title: "运行最小示例", learn: "亲眼看到输入、过程和输出，而不是只停留在文字理解。", method: "先预测结果，再运行官方最小示例；只改变一个变量观察差异。", proof: "能说明哪项改动导致了哪项结果。", links: [{ label: "寻找示例", url: `${repoUrl}/search?q=example&type=code` }] },
+    { type: "实现", title: "沿一次调用追代码", learn: "找到入口、核心处理和结果返回的连接方式。", method: "只追一条主链路，不要求第一遍读懂整个源码树。", proof: "能指出最值得修改的一个文件或函数。", links: [{ label: "搜索入口", url: `${repoUrl}/search?q=main&type=code` }] },
+    { type: "证据", title: "用测试、日志或作品验证", learn: "区分“看起来懂了”和真正能够复现、修改与说明。", method: "保留一张结果截图、一条测试或一段自己的解释。", proof: "能展示一个可重复的学习成果。", links: [{ label: "查看测试", url: `${repoUrl}/search?q=test&type=code` }] },
+  ];
+}
+
 export default function Home() {
   const [view, setView] = useState<View>("home");
   const [repoUrl, setRepoUrl] = useState("");
@@ -532,6 +593,8 @@ export default function Home() {
   const mentorMessageId = useRef(2);
   const [mobileReaderSurface, setMobileReaderSurface] = useState<"document" | "mentor" | "notes">("document");
   const [activeSourceSection, setActiveSourceSection] = useState(0);
+  const [beginnerTrackId, setBeginnerTrackId] = useState<BeginnerTrack["id"]>("product");
+  const [beginnerStage, setBeginnerStage] = useState(0);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("starmate-lesson-complete");
@@ -558,7 +621,31 @@ export default function Home() {
   const completedCount = lessonComplete ? 2 : 1;
   const progress = Math.round((completedCount / lessons.length) * 100);
   const currentCard = reviewCards[cardIndex];
-  const graphRepos = starredRepos.filter((repo) => savedRepoIds.includes(repo.id)).slice(0, 4);
+  const selectedRepos = useMemo(() => starredRepos.filter((repo) => savedRepoIds.includes(repo.id)), [starredRepos, savedRepoIds]);
+  const graphRepos = selectedRepos.slice(0, 6);
+  const currentBeginnerTrack = beginnerTracks.find((track) => track.id === beginnerTrackId) || beginnerTracks[0];
+  const growingLibraryCount = selectedRepos.length || sourceDocuments.length;
+  const pathRepositories = useMemo(() => selectedRepos.length ? selectedRepos.slice(0, 6).map((repo) => ({
+    name: repo.name,
+    owner: repo.full_name.split("/")[0] || "GitHub",
+    role: repo.language ? `${repo.language} · 我的收藏` : "我的收藏",
+    summary: repo.description || "从 README 建立全局地图，再逐步走到示例、源码和验证。",
+    duration: "按自己的节奏",
+    layers: buildGrowingRepositoryLayers(repo.html_url),
+  })) : repositoryLearningPaths, [selectedRepos]);
+  const topicGroups = useMemo(() => {
+    if (!selectedRepos.length) return [
+      { name: "AI Agent 基础", repos: sourceDocuments.map((document) => document.name), note: "内置示范主题，帮助你第一次体验跨文档学习。" },
+      { name: "工具与上下文", repos: [sourceDocuments[0].name, sourceDocuments[2].name], note: "观察模型怎样行动，以及信息怎样在任务中流动。" },
+      { name: "实现与验证", repos: [sourceDocuments[1].name, sourceDocuments[2].name], note: "把解释、代码和真实证据放在一起对照。" },
+    ];
+    const groups = new Map<string, string[]>();
+    selectedRepos.forEach((repo) => {
+      const labels = [repo.language || "其他技术", ...(repo.topics || []).slice(0, 2)];
+      labels.forEach((label) => groups.set(label, [...(groups.get(label) || []), repo.full_name]));
+    });
+    return [...groups.entries()].sort((a, b) => b[1].length - a[1].length).slice(0, 6).map(([name, repos]) => ({ name, repos, note: `由你的收藏自动聚合，新增相关仓库后会继续扩展。` }));
+  }, [selectedRepos]);
   const activeDocument = sourceDocuments.find((document) => document.name === activeDocumentName) || sourceDocuments[2];
   const readmeText = useMemo(() => { try { return decodeBase64Utf8(EMBEDDED_READMES[activeDocument.name] || ""); } catch { return ""; } }, [activeDocument.name]);
   const readmeLoading = false;
@@ -821,6 +908,7 @@ export default function Home() {
         </button>
         <nav className="desktop-nav" aria-label="主导航">
           <button className={view === "home" ? "active" : ""} onClick={() => setView("home")}>学习台</button>
+          <button className={view === "beginner" ? "active" : ""} onClick={() => setView("beginner")}>无痛入门</button>
           <button className={view === "overview" ? "active" : ""} onClick={() => setView("overview")}>全局地图</button>
           <button className={view === "reader" ? "active" : ""} onClick={() => setView("reader")}>伴读</button>
           <button className={view === "review" ? "active" : ""} onClick={() => setView("review")}>复习</button>
@@ -860,6 +948,11 @@ export default function Home() {
               <div className="floating-chip chip-one">不懂就问</div>
               <div className="floating-chip chip-two">循序渐进</div>
             </div>
+          </section>
+
+          <section className="beginner-entry">
+            <div className="beginner-entry-copy"><p className="overline">非技术背景专属 · 15 分钟</p><h2>先喜欢上技术，再慢慢学技术。</h2><p>不从环境配置、语法和长篇术语开始。先选一个你真正关心的目标，完成一次看得见的小成果。</p><button onClick={() => { setBeginnerStage(0); setView("beginner"); }}>开始无痛入门 <span>→</span></button></div>
+            <div className="beginner-entry-steps" aria-label="无痛入门四步"><div><span>01</span><b>选兴趣</b><small>从真实目标出发</small></div><i>→</i><div><span>02</span><b>先体验</b><small>三分钟看到结果</small></div><i>→</i><div><span>03</span><b>懂原理</b><small>术语翻译成人话</small></div><i>→</i><div><span>04</span><b>得成果</b><small>留下第一份作品</small></div></div>
           </section>
 
           <section className="github-source">
@@ -906,22 +999,22 @@ export default function Home() {
           <section className="dashboard-grid">
             <article className="continue-card">
               <div className="section-heading">
-                <div><p className="overline">继续学习</p><h2>Claude Code 是怎么工作的？</h2></div>
-                <span className="course-badge">AI Agent 入门</span>
+                <div><p className="overline">持续生长的学习库</p><h2>{selectedRepos.length ? `已加入 ${selectedRepos.length} 个收藏仓库` : "先从示范资料建立学习方法"}</h2></div>
+                <span className="course-badge">{selectedRepos.length ? "我的收藏" : "新手示范包"}</span>
               </div>
               <div className="course-progress">
                 <div className="progress-copy"><span>学习进度</span><strong>{progress}%</strong></div>
                 <div className="progress-track"><span style={{ width: `${progress}%` }}></span></div>
               </div>
-              <button className="current-lesson" onClick={() => openLesson(2)}>
-                <span className="lesson-number">02</span>
-                <span className="lesson-info"><small>下一节 · 约 12 分钟</small><strong>Claude Code 的 Agent Loop</strong></span>
+              <button className="current-lesson" onClick={() => selectedRepos.length ? setView("overview") : setView("beginner")}>
+                <span className="lesson-number">{selectedRepos.length ? "★" : "01"}</span>
+                <span className="lesson-info"><small>{selectedRepos.length ? "下一步 · 自动整理主题与关系" : "第一次体验 · 约 15 分钟"}</small><strong>{selectedRepos.length ? "查看我的动态学习地图" : "从无痛入门开始"}</strong></span>
                 <span className="play-button">→</span>
               </button>
               <div className="course-stats">
-                <span><strong>{completedCount}</strong> / 6 节</span>
-                <span><strong>4</strong> 个概念已掌握</span>
-                <span><strong>28</strong> 分钟已投入</span>
+                <span><strong>{growingLibraryCount}</strong> 篇学习资料</span>
+                <span><strong>{topicGroups.length}</strong> 个主题簇</span>
+                <span><strong>{savedRepoIds.length}</strong> 个新增收藏</span>
               </div>
             </article>
 
@@ -936,12 +1029,25 @@ export default function Home() {
           <section className="how-section">
             <div className="section-heading"><div><p className="overline">伴读不是总结</p><h2>每一步，都让你更接近“真正理解”</h2></div></div>
             <div className="feature-row">
-              <button className="feature-card" onClick={() => setView("overview")}><span>01</span><div className="feature-symbol coral">◎</div><h3>先看全局地图</h3><p>先看重点、知识关系和完整大纲，再决定从哪里开始。</p><b>打开地图 →</b></button>
-              <button className="feature-card" onClick={() => openLesson(2)}><span>02</span><div className="feature-symbol purple">≋</div><h3>一次讲透一点</h3><p>原文、小白解释和生活类比放在一起。</p><b>进入伴读 →</b></button>
-              <button className="feature-card" onClick={() => openLesson(1)}><span>03</span><div className="feature-symbol yellow">?</div><h3>提问检查理解</h3><p>答错就换一种说法，答对再逐步加深。</p><b>试一道题 →</b></button>
+              <button className="feature-card" onClick={() => setView("beginner")}><span>01</span><div className="feature-symbol coral">♡</div><h3>无痛式入门</h3><p>从兴趣和成就感开始，不要求技术基础。</p><b>选择我的目标 →</b></button>
+              <button className="feature-card" onClick={() => setView("overview")}><span>02</span><div className="feature-symbol purple">◎</div><h3>动态学习地图</h3><p>收藏越多，主题、关系和路线会一起生长。</p><b>打开地图 →</b></button>
+              <button className="feature-card" onClick={() => openLesson(2)}><span>03</span><div className="feature-symbol yellow">≋</div><h3>一次讲透一点</h3><p>原文、小白解释和生活类比放在一起。</p><b>进入伴读 →</b></button>
               <button className="feature-card" onClick={() => setView("review")}><span>04</span><div className="feature-symbol green">↗</div><h3>在遗忘前复习</h3><p>根据你的掌握度，安排真正需要的回忆题。</p><b>开始复习 →</b></button>
             </div>
           </section>
+        </div>
+      )}
+
+      {view === "beginner" && (
+        <div className="page beginner-page">
+          <button className="back-link" onClick={() => setView("home")}>← 返回学习台</button>
+          <header className="beginner-hero"><div><p className="kicker">无痛式技术入门</p><h1>先获得一次<em>“原来我也能懂”</em>的体验。</h1><p>这里没有入门考试，也不会要求你先学完编程。选一个与你有关的目标，15 分钟完成第一轮。</p></div><div className="beginner-promise"><span>今天不需要</span><p>安装环境</p><p>背诵语法</p><p>读完整仓库</p><b>只需要保持一点好奇心。</b></div></header>
+
+          <section className="beginner-track-section"><div className="section-heading"><div><p className="overline">第一步 · 从兴趣出发</p><h2>你最想先获得什么？</h2></div><span>没有正确答案，随时可以换</span></div><div className="beginner-track-grid">{beginnerTracks.map((track, index) => <button className={beginnerTrackId === track.id ? "active" : ""} key={track.id} onClick={() => { setBeginnerTrackId(track.id); setBeginnerStage(0); }}><span>0{index + 1}</span><strong>{track.label}</strong><p>{track.promise}</p></button>)}</div></section>
+
+          <section className="beginner-journey"><div className="journey-heading"><div><p className="overline">你的 15 分钟体验</p><h2>{currentBeginnerTrack.title}</h2><p>{currentBeginnerTrack.promise}</p></div><aside><span>今天的小任务</span><strong>{currentBeginnerTrack.mission}</strong></aside></div><div className="journey-progress">{currentBeginnerTrack.stages.map((stage, index) => <button className={`${index === beginnerStage ? "active" : ""} ${index < beginnerStage ? "done" : ""}`} key={stage.title} onClick={() => setBeginnerStage(index)}><span>{index < beginnerStage ? "✓" : `0${index + 1}`}</span><b>{stage.title}</b><small>{stage.duration}</small></button>)}</div><article className="beginner-stage-card"><div className="stage-number">0{beginnerStage + 1}</div><div><p className="overline">现在只做这一件事</p><h3>{currentBeginnerTrack.stages[beginnerStage].action}</h3><p>不理解术语也没关系。先完成动作，系统会在你需要时解释，而不是一次塞给你所有知识。</p><div className="stage-result"><span>完成后你会得到</span><strong>{currentBeginnerTrack.stages[beginnerStage].result}</strong></div></div><button onClick={() => setBeginnerStage((stage) => Math.min(stage + 1, currentBeginnerTrack.stages.length - 1))} disabled={beginnerStage === currentBeginnerTrack.stages.length - 1}>{beginnerStage === currentBeginnerTrack.stages.length - 1 ? "✓ 第一轮已完成" : "完成这一步 →"}</button></article></section>
+
+          <section className="plain-language"><div><p className="overline">遇到术语，不要硬背</p><h2>技术词先翻译成人话</h2></div><div className="plain-grid"><article><span>Agent</span><strong>会自己推进任务的助手</strong><p>像一位拿到目标后，会主动查资料、做事并汇报的实习生。</p></article><article><span>API</span><strong>软件之间约定好的服务窗口</strong><p>像点餐窗口：按规定提交需求，就能拿到标准结果。</p></article><article><span>Context</span><strong>助手当前桌面上的全部资料</strong><p>桌面太满时，需要整理重点，才能继续专注完成任务。</p></article></div></section>
         </div>
       )}
 
@@ -949,14 +1055,14 @@ export default function Home() {
         <div className="page overview-page">
           <button className="back-link" onClick={() => setView("home")}>← 返回学习台</button>
           <header className="overview-hero">
-            <div><p className="kicker">先总览，再深入</p><h1>Claude Code<br /><em>全局学习地图</em></h1></div>
-            <p>这门课不是六篇互不相干的笔记。它围绕一条主线展开：Agent 如何观察环境、循环行动、管理记忆，并在复杂任务中保持方向。</p>
+            <div><p className="kicker">收藏持续增长，地图持续更新</p><h1>我的技术收藏<br /><em>动态学习地图</em></h1></div>
+            <p>当前学习库包含 {growingLibraryCount} 篇资料。内置的三篇文章只是第一次使用的示范；同步和加入新收藏后，主题、关系与学习路径会围绕你的资料重新组织。</p>
           </header>
 
           <section className="takeaway-grid">
-            <article><span>01</span><strong>核心机制</strong><p>Agent Loop 让模型能调用工具、观察结果，再决定下一步。</p></article>
-            <article><span>02</span><strong>关键限制</strong><p>上下文会持续增长，因此需要 Compact、Todo 和子 Agent 管理信息。</p></article>
-            <article><span>03</span><strong>阅读目标</strong><p>最终能用“输入—行动—观察—记忆”解释一个 Coding Agent。</p></article>
+            <article><span>01</span><strong>{growingLibraryCount} 篇资料</strong><p>收藏库是主内容来源，示范资料只用于帮助第一次体验。</p></article>
+            <article><span>02</span><strong>{topicGroups.length} 个主题簇</strong><p>根据语言和仓库主题自动聚合，新收藏会加入已有主题或形成新主题。</p></article>
+            <article><span>03</span><strong>一套通用学法</strong><p>每个仓库都按地图、原理、实验、实现和证据逐层推进。</p></article>
           </section>
 
           <nav className="overview-modes" aria-label="学习方式">
@@ -968,12 +1074,12 @@ export default function Home() {
 
           {overviewMode === "documents" && (
             <section className="mode-panel">
-              <div className="mode-heading"><div><p className="overline">原文视角</p><h2>一篇文档，一套独立大纲</h2></div><p>这里不混合多篇资料。每张卡片展示该仓库自己的定位、概念和 README 结构。</p></div>
+              <div className="mode-heading"><div><p className="overline">我的收藏库 · 持续增长</p><h2>一篇文档，一套独立大纲</h2></div><p>同步并加入伴读的仓库会出现在这里。下面三篇是内置示范资料，用来展示完整的 App 内阅读体验。</p></div>
               <div className="document-list">
                 {sourceDocuments.map((document, index) => (
                   <article className={`document-card ${expandedDocument === document.name ? "expanded" : ""}`} key={document.name}>
                     <div className="document-number">0{index + 1}</div>
-                    <div className="document-main"><span className="relation-badge">{document.role}</span><h3>{document.name}</h3><small>{document.owner}</small><p>{document.summary}</p><div className="concept-tags">{document.concepts.map((concept) => <span key={concept}>{concept}</span>)}</div></div>
+                    <div className="document-main"><span className="relation-badge">示范 · {document.role}</span><h3>{document.name}</h3><small>{document.owner}</small><p>{document.summary}</p><div className="concept-tags">{document.concepts.map((concept) => <span key={concept}>{concept}</span>)}</div></div>
                     <div className="document-outline"><strong>原文大纲</strong><ol>{document.outline.map((item) => <li key={item}>{item}</li>)}</ol><div className="document-actions"><button className="read-inside" onClick={() => openDocument(document.name)}>在 App 内阅读</button><button aria-expanded={expandedDocument === document.name} onClick={() => setExpandedDocument(expandedDocument === document.name ? null : document.name)}>{expandedDocument === document.name ? "收起详细大纲" : "查看详细大纲"}</button><a href={document.url} target="_blank" rel="noreferrer">GitHub ↗</a></div></div>
                     {expandedDocument === document.name && <div className="detailed-outline"><div className="outline-heading"><div><span>完整原文大纲</span><strong>{document.sections.length} 个章节层级</strong></div><a href={document.url} target="_blank" rel="noreferrer">前往完整原文 ↗</a></div><div className="reading-guide"><div><span>预计阅读</span><strong>{document.readingTime}</strong></div><div><span>阅读建议</span><strong>{document.focus}</strong></div></div><ol>{document.sections.map((section, sectionIndex) => <li key={section.title}><span>{String(sectionIndex + 1).padStart(2, "0")}</span><div><h4>{section.title}</h4><p><b>本章解决的问题</b>{section.purpose}</p><div className="section-points"><b>章节内部重点</b>{section.points.map((point) => <em key={point}>{point}</em>)}</div></div></li>)}</ol><a className="start-original" href={document.url} target="_blank" rel="noreferrer">前往完整原文 ↗</a></div>}
                   </article>
@@ -985,20 +1091,14 @@ export default function Home() {
 
           {overviewMode === "topic" && (
             <section className="mode-panel">
-              <div className="mode-heading"><div><p className="overline">AI 生成 · 跨 3 篇资料</p><h2>主题路线：Claude Code 如何工作</h2></div><p>这不是任何一篇文章的原目录。AI 按学习顺序重组内容，每节都标明引用来源。</p></div>
-              <div className="topic-legend"><span>路线逻辑</span><b>观察证据</b><i>→</i><b>理解行动</b><i>→</i><b>理解记忆</b><i>→</i><b>管理复杂度</b></div>
-              <div className="course-outline topic-outline">
-                {lessons.map((lesson, index) => {
-                  const sources = index === 0 ? ["reverse"] : index === 1 ? ["works", "from-scratch", "reverse"] : index < 4 ? ["works", "reverse"] : ["from-scratch", "reverse"];
-                  return <button key={lesson.id} onClick={() => openLesson(lesson.id)} disabled={!lessonContents[lesson.id]}><span>{String(lesson.id).padStart(2, "0")}</span><div><small>{index < 2 ? "第一章 · Agent 如何行动" : index < 4 ? "第二章 · 上下文与记忆" : "第三章 · 复杂任务治理"}</small><strong>{lesson.title}</strong><p>{["从真实请求找到逆向证据。", "理解工具调用与观察结果的循环。", "解释消息为什么持续积累。", "理解压缩如何保留目标与进度。", "看懂任务列表怎样维持方向。", "理解隔离上下文如何降低干扰。"][index]}</p><div className="source-tags">来源：{sources.map((source) => <em key={source}>{source}</em>)}</div></div><b>{lessonContents[lesson.id] ? "开始阅读 →" : "即将开放"}</b></button>;
-                })}
-              </div>
+              <div className="mode-heading"><div><p className="overline">按收藏自动聚类</p><h2>{selectedRepos.length ? "你的资料正在形成这些主题" : "先用示范包体验跨文档主题"}</h2></div><p>这里不再绑定固定的三篇文章。加入新收藏后，系统会根据语言与仓库主题自动扩充或生成新的学习主题。</p></div>
+              <div className="dynamic-topic-grid">{topicGroups.map((group, index) => <article key={group.name}><span>{String(index + 1).padStart(2, "0")}</span><div><small>{group.repos.length} 篇相关资料</small><h3>{group.name}</h3><p>{group.note}</p><div>{group.repos.slice(0, 4).map((repo) => <em key={repo}>{repo}</em>)}</div></div><button onClick={() => selectedRepos.length ? setOverviewMode("documents") : openLesson(2)}>{selectedRepos.length ? "查看资料 →" : "体验示范 →"}</button></article>)}</div>
             </section>
           )}
 
           {overviewMode === "path" && (
             <section className="mode-panel learning-path-panel">
-              <div className="mode-heading"><div><p className="overline">README 只是地图</p><h2>从“读过”走到“能解释、能运行、能验证”</h2></div><p>三个仓库不需要逐文件通读。按五层推进：先建立地图，再理解原理、运行实验、定位实现，最后用日志和测试验证。</p></div>
+              <div className="mode-heading"><div><p className="overline">适用于每个新收藏</p><h2>从“读过”走到“能解释、能运行、能验证”</h2></div><p>不再为三篇文章写死课程。每个加入伴读的仓库都会套用五层学习法，再根据 README、示例、源码和测试生成具体任务。</p></div>
               <div className="learning-layer-map" aria-label="五层仓库学习法">
                 {[
                   ["01", "地图", "知道学什么"],
@@ -1009,7 +1109,7 @@ export default function Home() {
                 ].map(([number, title, note]) => <div key={number}><span>{number}</span><strong>{title}</strong><small>{note}</small></div>)}
               </div>
               <div className="repository-path-list">
-                {repositoryLearningPaths.map((repository, repositoryIndex) => (
+                {pathRepositories.map((repository, repositoryIndex) => (
                   <article className="repository-path-card" key={repository.name}>
                     <header><div className="path-repo-number">0{repositoryIndex + 1}</div><div><span>{repository.role}</span><h3>{repository.name}</h3><small>{repository.owner} · {repository.duration}</small></div><p>{repository.summary}</p></header>
                     <div className="repository-layer-list">
@@ -1024,7 +1124,7 @@ export default function Home() {
                   </article>
                 ))}
               </div>
-              <aside className="path-finish"><span>最终检验</span><div><strong>能解释</strong><p>不看文章讲清一次 Agent 任务怎样运行。</p></div><div><strong>能修改</strong><p>给最小 Agent 增加一个工具并成功调用。</p></div><div><strong>能验证</strong><p>用测试或日志区分事实、推断与类比。</p></div></aside>
+              <aside className="path-finish"><span>最终检验</span><div><strong>能解释</strong><p>不用照着 README，也能讲清项目解决什么问题。</p></div><div><strong>能修改</strong><p>能对示例、配置或代码完成一次小改动。</p></div><div><strong>能验证</strong><p>能用运行结果、测试或作品证明自己学会。</p></div></aside>
             </section>
           )}
 
@@ -1034,13 +1134,11 @@ export default function Home() {
               <div className="graph-legend"><span className="legend-document">文档</span><span className="legend-concept">概念</span><span className="legend-relation">关系说明</span></div>
               <h3 className="graph-subtitle">文档之间</h3>
               <div className="relation-list">
-                <div className="relation-row"><strong>how-claude-code-works</strong><span>理论 → 实现</span><strong>claude-code-from-scratch</strong><p>前者建立整体直觉，后者用最小代码验证机制。</p></div>
-                <div className="relation-row"><strong>claude-code-reverse</strong><span>证据补充</span><strong>how-claude-code-works</strong><p>逆向请求为入门文章中的流程解释提供真实证据。</p></div>
-                <div className="relation-row"><strong>claude-code-reverse</strong><span>机制验证</span><strong>claude-code-from-scratch</strong><p>一个观察真实产品，一个实现简化版本，可相互对照。</p></div>
+                {graphRepos.length >= 2 ? graphRepos.slice(0, -1).map((repo, index) => { const next = graphRepos[index + 1]; const shared = (repo.topics || []).find((topic) => (next.topics || []).includes(topic)); return <div className="relation-row" key={`${repo.id}-${next.id}`}><strong>{repo.full_name}</strong><span>{shared ? `共同主题 · ${shared}` : repo.language && repo.language === next.language ? `同为 ${repo.language}` : "学习互补"}</span><strong>{next.full_name}</strong><p>{shared ? `它们都覆盖 ${shared}，适合放在同一条主题路线中对照阅读。` : "系统根据仓库主题、语言和简介形成临时关系；加入更多收藏后会继续调整。"}</p></div>; }) : <div className="growing-empty"><span>✦</span><div><strong>加入至少两个收藏后，这里会生成真实关系</strong><p>关系来自你的仓库主题、语言和内容，不再预先写死三篇文章之间的连线。</p></div></div>}
               </div>
               <h3 className="graph-subtitle">文档与核心概念</h3>
               <div className="concept-relation-grid">
-                {sourceDocuments.map((document) => <div className="concept-relation" key={document.name}><strong>{document.name}</strong><span>主要讲解</span><div>{document.concepts.map((concept) => <b key={concept}>{concept}</b>)}</div><p>{document.summary}</p></div>)}
+                {graphRepos.length ? graphRepos.map((repo) => <div className="concept-relation" key={repo.id}><strong>{repo.full_name}</strong><span>我的收藏</span><div>{[repo.language || "其他技术", ...(repo.topics || []).slice(0, 3)].map((concept) => <b key={concept}>{concept}</b>)}</div><p>{repo.description || "等待从 README 提取更详细的概念。"}</p></div>) : sourceDocuments.map((document) => <div className="concept-relation starter" key={document.name}><strong>{document.name}</strong><span>内置示范</span><div>{document.concepts.map((concept) => <b key={concept}>{concept}</b>)}</div><p>{document.summary}</p></div>)}
               </div>
             </section>
           )}
@@ -1132,7 +1230,8 @@ export default function Home() {
       )}
 
       <nav className="mobile-nav" aria-label="手机导航">
-        <button className={view === "home" || view === "overview" ? "active" : ""} onClick={() => setView("home")}><span>⌂</span>学习台</button>
+        <button className={view === "home" ? "active" : ""} onClick={() => setView("home")}><span>⌂</span>学习台</button>
+        <button className={view === "beginner" ? "active" : ""} onClick={() => setView("beginner")}><span>♡</span>入门</button>
         <button className={view === "reader" ? "active" : ""} onClick={() => setView("reader")}><span>▤</span>伴读</button>
         <button className={view === "review" ? "active" : ""} onClick={() => setView("review")}><span>↻</span>复习</button>
       </nav>
