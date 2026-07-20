@@ -94,3 +94,14 @@ test("offers a painless beginner path for nontechnical readers", async () => {
   assert.match(page, /技术词先翻译成人话/);
   assert.match(page, /15 分钟/);
 });
+
+test("lets beginners complete and save real practice inside the app", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+
+  assert.match(page, /在 App 内运行一次 Agent/);
+  assert.match(page, /在 App 内生成小工具蓝图/);
+  assert.match(page, /完成一次技术岗位情境演练/);
+  assert.match(page, /保存到我的学习成果/);
+  assert.match(page, /localStorage\.setItem\("starmate-beginner-artifact"/);
+  assert.match(page, /Agent 会先理解目标，再选择工具，最后检查并整理结果/);
+});
