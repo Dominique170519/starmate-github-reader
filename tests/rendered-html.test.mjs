@@ -86,22 +86,35 @@ test("grows the learning map from saved repositories", async () => {
 test("offers a painless beginner path for nontechnical readers", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
 
-  assert.match(page, /无痛式技术入门/);
+  assert.match(page, /仓库专属 · 无痛式入门/);
   assert.match(page, /先喜欢上技术，再慢慢学技术/);
-  assert.match(page, /看懂 AI 产品/);
-  assert.match(page, /做第一个小工具/);
-  assert.match(page, /探索技术岗位/);
-  assert.match(page, /技术词先翻译成人话/);
-  assert.match(page, /15 分钟/);
+  assert.match(page, /how-claude-code-works/);
+  assert.match(page, /claude-code-from-scratch/);
+  assert.match(page, /claude-code-reverse/);
+  assert.match(page, /内容随仓库切换/);
+  assert.match(page, /只解释这篇文章马上会用到的词/);
+  assert.match(page, /30 秒兴趣.*3 分钟体验.*5 分钟全局.*2 分钟挑战/s);
 });
 
 test("lets beginners complete and save real practice inside the app", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
 
-  assert.match(page, /在 App 内运行一次 Agent/);
-  assert.match(page, /在 App 内生成小工具蓝图/);
-  assert.match(page, /完成一次技术岗位情境演练/);
+  assert.match(page, /在 App 内观察一次完整循环/);
+  assert.match(page, /组装一个最小 Agent 蓝图/);
+  assert.match(page, /给一条逆向结论标注可信度/);
   assert.match(page, /保存到我的学习成果/);
   assert.match(page, /localStorage\.setItem\("starmate-beginner-artifact"/);
-  assert.match(page, /Agent 会先理解目标，再选择工具，最后检查并整理结果/);
+  assert.match(page, /一次日志能证明行为，不能自动证明唯一内部实现/);
+  assert.match(page, /开始伴读 \{currentBeginnerTrack\.repository\}/);
+});
+
+test("keeps contextual answers anchored to the current GitHub section", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const route = await readFile(new URL("../app/api/mentor/route.ts", import.meta.url), "utf8");
+
+  assert.match(page, /当前上下文 · 实时跟随/);
+  assert.match(page, /定位当前原文/);
+  assert.match(page, /定位原文 ↗/);
+  assert.match(page, /浏览器伴读原型/);
+  assert.match(route, /直白结论—为什么—原文位置—下一步/);
 });

@@ -76,53 +76,112 @@ type RepositoryLearningPath = {
 };
 
 type BeginnerTrack = {
-  id: "product" | "maker" | "career";
+  id: "how" | "scratch" | "reverse";
+  repository: string;
+  owner: string;
   label: string;
+  role: string;
   title: string;
   promise: string;
+  hook: string;
   mission: string;
+  outcome: string;
   stages: { title: string; duration: string; action: string; result: string }[];
+  mentalModel: { title: string; detail: string }[];
+  terms: { term: string; plain: string; example: string }[];
+  transfer: string;
 };
 
 const beginnerTracks: BeginnerTrack[] = [
   {
-    id: "product",
-    label: "看懂 AI 产品",
-    title: "从一次真实体验，认识 AI Agent",
-    promise: "不写代码，也能看懂一个 AI 产品为什么会调用工具、记住上下文并完成任务。",
-    mission: "让 AI 帮你整理一份资料，并观察它做了哪几步。",
+    id: "how",
+    repository: "how-claude-code-works",
+    owner: "Windy3f3f3f3f",
+    label: "先看懂 Agent 全局",
+    role: "产品原理入门",
+    title: "亲眼看见 Agent Loop 跑完一轮",
+    promise: "这篇文章适合先建立系统直觉。你会看到模型为什么不是“一次回答完”，而是不断行动、观察和继续判断。",
+    hook: "普通聊天像给建议，Agent 更像真的去办事：它会读资料、使用工具、检查结果，直到任务完成。",
+    mission: "给 Agent 一个真实阅读任务，逐步观察模型、工具、结果和下一轮决策。",
+    outcome: "能用自己的话画出用户、模型、工具与上下文的关系。",
     stages: [
-      { title: "先玩一次", duration: "3 分钟", action: "观察一个 Agent 完成小任务", result: "先看到技术能做什么" },
-      { title: "翻译术语", duration: "4 分钟", action: "把 Agent、Tool、Context 换成生活语言", result: "认识 3 个核心概念" },
-      { title: "拆开看看", duration: "5 分钟", action: "按输入—行动—结果复盘过程", result: "第一次看懂工作原理" },
-      { title: "说给别人", duration: "3 分钟", action: "用自己的话完成一道解释题", result: "获得第一张掌握卡" },
+      { title: "30 秒兴趣", duration: "先知道价值", action: "看 Agent 与普通聊天的差别", result: "愿意继续读" },
+      { title: "3 分钟体验", duration: "在 App 内完成", action: "运行一次 Agent Loop", result: "亲眼看到四步循环" },
+      { title: "5 分钟全局", duration: "建立系统地图", action: "连接模型、工具和上下文", result: "抓住文章主线" },
+      { title: "2 分钟挑战", duration: "回到原文验证", action: "解释工具结果为何要回传", result: "带着问题进入原文" },
     ],
+    mentalModel: [
+      { title: "用户目标", detail: "说明最终想完成什么" },
+      { title: "模型判断", detail: "决定回答还是调用工具" },
+      { title: "工具行动", detail: "真实读取、搜索或修改" },
+      { title: "结果回传", detail: "把新观察放回上下文" },
+    ],
+    terms: [
+      { term: "Agent Loop", plain: "做一步、看结果、再决定", example: "像实习生查完一份表，再决定要不要继续找资料。" },
+      { term: "Tool", plain: "模型可以使用的行动能力", example: "模型负责判断，读取文件工具负责真正打开文件。" },
+      { term: "Context", plain: "模型此刻能看到的工作台", example: "任务、历史消息和工具结果都放在这张工作台上。" },
+    ],
+    transfer: "适合继续探索 AI 产品经理、AI 解决方案和 Agent 产品设计。",
   },
   {
-    id: "maker",
-    label: "做第一个小工具",
-    title: "从需求出发，做出最小可用作品",
-    promise: "先用现成工具做出结果，再逐步认识接口、数据和代码，不从语法课开始。",
-    mission: "做一个能总结 GitHub README 的个人小助手。",
+    id: "scratch",
+    repository: "claude-code-from-scratch",
+    owner: "Windy3f3f3f3f",
+    label: "动手拼出最小 Agent",
+    role: "实现案例入门",
+    title: "不用先学语法，先拼出一个能工作的 Agent",
+    promise: "这篇文章适合把抽象原理对应到代码结构。你会先组装最小骨架，再去原文寻找每个部件。",
+    hook: "复杂 Coding Agent 看起来有很多功能，但最小版本只需要模型请求、工具、循环和结束条件。",
+    mission: "在 App 内组装三个必要部件，生成自己的最小 Agent 蓝图。",
+    outcome: "看见每段代码属于哪一步，并知道少一个部件会发生什么。",
     stages: [
-      { title: "选一个痛点", duration: "3 分钟", action: "把模糊想法改成一句任务", result: "得到清晰需求" },
-      { title: "拼出流程", duration: "4 分钟", action: "连接输入、AI 处理和输出", result: "看见产品骨架" },
-      { title: "改一个变量", duration: "5 分钟", action: "调整提示词或输出格式", result: "完成第一次技术修改" },
-      { title: "分享作品", duration: "3 分钟", action: "写下用途、过程和下一步", result: "形成可展示的小项目" },
+      { title: "30 秒兴趣", duration: "拆掉神秘感", action: "把完整产品缩成四个部件", result: "知道代码并非黑盒" },
+      { title: "3 分钟组装", duration: "在 App 内完成", action: "连接模型、工具和循环", result: "得到最小蓝图" },
+      { title: "5 分钟对照", duration: "寻找代码位置", action: "把蓝图映射到教程章节", result: "知道原文怎么读" },
+      { title: "2 分钟挑战", duration: "预测运行结果", action: "判断程序何时继续或结束", result: "开始形成实现直觉" },
     ],
+    mentalModel: [
+      { title: "发给模型", detail: "提交目标与历史消息" },
+      { title: "解析决定", detail: "读取回答或工具调用" },
+      { title: "执行工具", detail: "得到外部世界的结果" },
+      { title: "判断结束", detail: "继续循环或交付答案" },
+    ],
+    terms: [
+      { term: "Tool Call", plain: "模型提交的一张行动申请单", example: "申请读取 README，并给出文件路径参数。" },
+      { term: "Tool Result", plain: "行动完成后的回执", example: "程序把读取到的文件内容交回模型。" },
+      { term: "Stop Condition", plain: "什么时候停止循环", example: "模型不再请求工具、开始给出最终答案时结束。" },
+    ],
+    transfer: "适合继续做第一个 AI 小工具，并逐步补齐 TypeScript 或 Python。",
   },
   {
-    id: "career",
-    label: "探索技术岗位",
-    title: "从工作场景，认识技术型业务岗位",
-    promise: "不先背岗位名，先体验产品、解决方案和数据岗位每天在解决什么问题。",
-    mission: "完成一次“客户需求 → 技术方案 → 结果说明”的迷你演练。",
+    id: "reverse",
+    repository: "claude-code-reverse",
+    owner: "Yuyz0112",
+    label: "像研究员一样找证据",
+    role: "逆向分析入门",
+    title: "从一条真实日志，判断什么能证明、什么只是猜测",
+    promise: "这篇文章适合训练证据思维。你不需要记住请求字段，只要学会把现象、推断和未知分开。",
+    hook: "逆向分析不是破解秘密，而是从请求、日志和行为中寻找可以重复验证的线索。",
+    mission: "判断一句关于 Claude Code 的结论，是直接证据、合理推断，还是目前无法证明。",
+    outcome: "能制作一条“结论—证据—可信度”记录，不再把作者推测当成事实。",
     stages: [
-      { title: "进入场景", duration: "3 分钟", action: "读一个真实业务问题", result: "知道岗位为何存在" },
-      { title: "做个判断", duration: "4 分钟", action: "选择需求、方案和风险", result: "体验技术沟通" },
-      { title: "认识工具", duration: "5 分钟", action: "看懂 API、数据库和模型的分工", result: "建立能力地图" },
-      { title: "留下证据", duration: "3 分钟", action: "生成一条项目经历表达", result: "形成求职素材" },
+      { title: "30 秒兴趣", duration: "进入侦探视角", action: "从表面结果寻找幕后线索", result: "理解逆向价值" },
+      { title: "3 分钟判断", duration: "在 App 内完成", action: "给结论标注证据等级", result: "避免过度推断" },
+      { title: "5 分钟追踪", duration: "理解证据链", action: "连接请求、工具与行为", result: "看懂仓库主线" },
+      { title: "2 分钟挑战", duration: "回到日志验证", action: "找出一条能支撑结论的记录", result: "开始像研究员一样阅读" },
     ],
+    mentalModel: [
+      { title: "提出问题", detail: "先写清想验证什么" },
+      { title: "捕获记录", detail: "保存请求与运行日志" },
+      { title: "比较变化", detail: "一次只改变一个条件" },
+      { title: "标注可信度", detail: "区分证据、推断与未知" },
+    ],
+    terms: [
+      { term: "Request", plain: "程序实际发出去的请求记录", example: "可以看到消息、工具定义和部分运行上下文。" },
+      { term: "Log", plain: "系统按时间留下的行动轨迹", example: "能帮助还原某次工具调用前后发生了什么。" },
+      { term: "Inference", plain: "由证据支持、但仍需注明边界的推断", example: "一次日志能说明这次发生了什么，不一定代表所有情况。" },
+    ],
+    transfer: "适合继续发展技术调研、解决方案分析和 AI 产品评测能力。",
   },
 ];
 
@@ -593,16 +652,16 @@ export default function Home() {
   const mentorMessageId = useRef(2);
   const [mobileReaderSurface, setMobileReaderSurface] = useState<"document" | "mentor" | "notes">("document");
   const [activeSourceSection, setActiveSourceSection] = useState(0);
-  const [beginnerTrackId, setBeginnerTrackId] = useState<BeginnerTrack["id"]>("product");
+  const [beginnerTrackId, setBeginnerTrackId] = useState<BeginnerTrack["id"]>("how");
   const [beginnerStage, setBeginnerStage] = useState(0);
   const [beginnerLabStep, setBeginnerLabStep] = useState(0);
   const [beginnerLabComplete, setBeginnerLabComplete] = useState(false);
   const [beginnerArtifactSaved, setBeginnerArtifactSaved] = useState(false);
-  const [agentTask, setAgentTask] = useState("把一篇长文章整理成 3 个重点，并提出 1 个复习问题");
-  const [makerProblem, setMakerProblem] = useState("GitHub README 太长，看不出重点");
-  const [makerInput, setMakerInput] = useState("一个 GitHub 仓库链接");
-  const [makerOutput, setMakerOutput] = useState("3 个重点、1 个生活类比、1 道理解题");
-  const [careerChoice, setCareerChoice] = useState<"product" | "solution" | "data">("solution");
+  const [agentTask, setAgentTask] = useState("读取这篇 README，告诉我 Agent 为什么需要反复调用工具");
+  const [makerProblem, setMakerProblem] = useState("模型：判断下一步是回答还是调用工具");
+  const [makerInput, setMakerInput] = useState("工具：读取文件并返回真实内容");
+  const [makerOutput, setMakerOutput] = useState("循环：没有工具调用时交付最终答案");
+  const [evidenceChoice, setEvidenceChoice] = useState<"evidence" | "inference" | "unknown">("inference");
 
   useEffect(() => {
     const saved = window.localStorage.getItem("starmate-lesson-complete");
@@ -632,16 +691,16 @@ export default function Home() {
   const selectedRepos = useMemo(() => starredRepos.filter((repo) => savedRepoIds.includes(repo.id)), [starredRepos, savedRepoIds]);
   const graphRepos = selectedRepos.slice(0, 6);
   const currentBeginnerTrack = beginnerTracks.find((track) => track.id === beginnerTrackId) || beginnerTracks[0];
-  const careerResult = {
-    product: { name: "AI 产品经理", action: "把问题定义为“高频问题答非所问”，并用首次解决率衡量改进。", evidence: "我梳理了 FAQ 助手的用户问题、优先级与成功指标。" },
-    solution: { name: "AI 解决方案顾问", action: "用知识库检索补充模型回答，并增加无答案时转人工的安全出口。", evidence: "我为教育场景设计了知识库检索、模型回答与人工兜底方案。" },
-    data: { name: "数据 / AI 运营", action: "收集差评问题，按错误类型建立评测集，每周追踪准确率变化。", evidence: "我建立了问题分类、评测样本与效果追踪方案。" },
-  }[careerChoice];
-  const beginnerArtifact = beginnerTrackId === "product"
-    ? `Agent 初体验｜任务：${agentTask}｜我观察到：Agent 会先理解目标，再选择工具，最后检查并整理结果。`
-    : beginnerTrackId === "maker"
-      ? `小工具蓝图｜问题：${makerProblem}｜输入：${makerInput}｜输出：${makerOutput}`
-      : `${careerResult.name}情境演练｜方案：${careerResult.action}｜经历表达：${careerResult.evidence}`;
+  const evidenceResult = {
+    evidence: { label: "直接证据", verdict: "选择偏强：日志能证明出现了 Read 工具调用，但不能单独证明全部内部架构。", confidence: "高可信地描述本次行为，低可信地外推所有场景。" },
+    inference: { label: "合理推断", verdict: "判断正确：现有记录支持这个解释，但“内部一定如此实现”仍需要更多场景或源码证据。", confidence: "保留边界，继续用不同任务的日志交叉验证。" },
+    unknown: { label: "目前未知", verdict: "过于保守：日志已经提供了一部分行为证据，只是证据还不足以证明唯一实现。", confidence: "可以形成暂定结论，但需要明确写出可信度。" },
+  }[evidenceChoice];
+  const beginnerArtifact = beginnerTrackId === "how"
+    ? `how-claude-code-works 入门成果｜任务：${agentTask}｜我画出了目标—模型—工具—结果回传的 Agent Loop。`
+    : beginnerTrackId === "scratch"
+      ? `claude-code-from-scratch 入门成果｜${makerProblem}｜${makerInput}｜${makerOutput}`
+      : `claude-code-reverse 入门成果｜我的判断：${evidenceResult.label}｜阅读原则：一次日志能证明行为，不能自动证明唯一内部实现。`;
   const growingLibraryCount = selectedRepos.length || sourceDocuments.length;
   const pathRepositories = useMemo(() => selectedRepos.length ? selectedRepos.slice(0, 6).map((repo) => ({
     name: repo.name,
@@ -718,6 +777,18 @@ export default function Home() {
     setBeginnerLabStep(0);
     setBeginnerLabComplete(false);
     setBeginnerArtifactSaved(false);
+  }
+
+  function openBeginnerExperience(repository = activeDocument.name) {
+    const track = beginnerTracks.find((item) => item.repository === repository) || beginnerTracks[0];
+    chooseBeginnerTrack(track.id);
+    setView("beginner");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function startBeginnerReading() {
+    openDocument(currentBeginnerTrack.repository);
+    setReaderMode("guide");
   }
 
   function finishBeginnerLab() {
@@ -906,11 +977,11 @@ export default function Home() {
   function renderMentorWorkspace() {
     return <>
       <div className="mentor-heading"><span className="mentor-avatar">✦</span><div><strong>伴读老师</strong><small className={`mentor-model-status ${mentorStatus}`}>{mentorLoading ? "gpt-5.4-mini · 正在生成" : mentorStatus === "ready" ? "gpt-5.4-mini · 已连接" : mentorStatus === "unconfigured" ? "gpt-5.4-mini · 等待密钥" : mentorStatus === "checking" ? "正在检查模型连接" : "模型连接暂时异常"}</small></div></div>
-      <div className="mentor-context"><span>当前上下文</span><strong>{activeDocument.name}</strong><small>{currentSectionTitle}</small>{selectedText && <><blockquote>“{selectedText.slice(0, 120)}{selectedText.length > 120 ? "…" : ""}”</blockquote><button onClick={() => addToNotes()}>+ 加入笔记</button></>}</div>
-      <div className="mentor-conversation" aria-live="polite">{mentorMessages.map((message) => <article className={`mentor-bubble ${message.role} ${message.pending ? "pending" : ""} ${message.error ? "error" : ""}`} key={message.id}>{message.title && <strong>{message.title}</strong>}{message.quote && <blockquote>“{message.quote.slice(0, 110)}{message.quote.length > 110 ? "…" : ""}”</blockquote>}<p>{message.content}</p>{message.source && <small>依据：{message.source}</small>}{message.check && <div className="mentor-check"><b>{message.check.question}</b>{message.check.options.map((option, index) => <button className={mentorCheckChoice === index ? (index === message.check?.correct ? "correct" : "wrong") : ""} key={option} onClick={() => setMentorCheckChoice(index)}>{String.fromCharCode(65 + index)}. {option}</button>)}{mentorCheckChoice !== null && <em>{mentorCheckChoice === message.check.correct ? `回答正确：${message.check.feedback}` : "再想一步：回到这一节的核心问题，区分原文证据与无关细节。"}</em>}</div>}</article>)}</div>
+      <div className="mentor-context"><span>当前上下文 · 实时跟随</span><strong>{activeDocument.name}</strong><small>第 {activeSourceSection + 1} 节 · {currentSectionTitle}</small>{selectedText && <blockquote>“{selectedText.slice(0, 120)}{selectedText.length > 120 ? "…" : ""}”</blockquote>}<div className="mentor-context-actions"><button onClick={() => { setReaderMode("original"); setMobileReaderSurface("document"); goToSourceSection(activeSourceSection); }}>定位当前原文</button>{selectedText && <button onClick={() => addToNotes()}>+ 加入笔记</button>}</div></div>
+      <div className="mentor-conversation" aria-live="polite">{mentorMessages.map((message) => <article className={`mentor-bubble ${message.role} ${message.pending ? "pending" : ""} ${message.error ? "error" : ""}`} key={message.id}>{message.title && <strong>{message.title}</strong>}{message.quote && <blockquote>“{message.quote.slice(0, 110)}{message.quote.length > 110 ? "…" : ""}”</blockquote>}<p>{message.content}</p>{message.source && <button className="mentor-source-link" onClick={() => { setReaderMode("original"); setMobileReaderSurface("document"); goToSourceSection(activeSourceSection); }}>依据：{message.source} · 定位原文 ↗</button>}{message.check && <div className="mentor-check"><b>{message.check.question}</b>{message.check.options.map((option, index) => <button className={mentorCheckChoice === index ? (index === message.check?.correct ? "correct" : "wrong") : ""} key={option} onClick={() => setMentorCheckChoice(index)}>{String.fromCharCode(65 + index)}. {option}</button>)}{mentorCheckChoice !== null && <em>{mentorCheckChoice === message.check.correct ? `回答正确：${message.check.feedback}` : "再想一步：回到这一节的核心问题，区分原文证据与无关细节。"}</em>}</div>}</article>)}</div>
       <div className="mentor-actions"><button disabled={mentorLoading} onClick={() => askMentor("解释当前内容", "explain")}><span>译</span>小白解释</button><button disabled={mentorLoading} onClick={() => askMentor("通过提问引导我", "guide")}><span>问</span>引导思考</button><button disabled={mentorLoading} onClick={() => askMentor("举一个容易理解的例子", "example")}><span>例</span>举个例子</button><button disabled={mentorLoading} onClick={() => askMentor("检查我是否理解", "check")}><span>测</span>理解检查</button></div>
       <div className="mentor-input"><input disabled={mentorLoading} aria-label="向伴读老师提问" value={mentorQuestion} onChange={(event) => setMentorQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !mentorLoading) askMentor(); }} placeholder={mentorLoading ? "GPT 正在回答…" : "围绕当前章节提问…"} /><button disabled={mentorLoading} aria-label="发送问题" onClick={() => askMentor()}>{mentorLoading ? "…" : "↑"}</button></div>
-      <p className="grounding-note">只发送当前文章、章节、选中原文与最近对话；API Key 始终留在服务端</p>
+      <p className="grounding-note">回答绑定当前仓库与章节，并可一键定位原文；API Key 始终留在服务端</p>
     </>;
   }
 
@@ -988,7 +1059,7 @@ export default function Home() {
           </section>
 
           <section className="beginner-entry">
-            <div className="beginner-entry-copy"><p className="overline">非技术背景专属 · 15 分钟</p><h2>先喜欢上技术，再慢慢学技术。</h2><p>不从环境配置、语法和长篇术语开始。先选一个你真正关心的目标，完成一次看得见的小成果。</p><button onClick={() => { setBeginnerStage(0); setView("beginner"); }}>开始无痛入门 <span>→</span></button></div>
+            <div className="beginner-entry-copy"><p className="overline">每个仓库一套入口 · 10 分钟</p><h2>先喜欢上技术，再慢慢学技术。</h2><p>不再重复同一套简单科普。根据当前 GitHub 文章生成兴趣钩子、互动体验、全局地图和原文挑战。</p><button onClick={() => openBeginnerExperience(beginnerTracks[0].repository)}>选择一篇开始 <span>→</span></button></div>
             <div className="beginner-entry-steps" aria-label="无痛入门四步"><div><span>01</span><b>选兴趣</b><small>从真实目标出发</small></div><i>→</i><div><span>02</span><b>先体验</b><small>三分钟看到结果</small></div><i>→</i><div><span>03</span><b>懂原理</b><small>术语翻译成人话</small></div><i>→</i><div><span>04</span><b>得成果</b><small>留下第一份作品</small></div></div>
           </section>
 
@@ -1078,49 +1149,54 @@ export default function Home() {
       {view === "beginner" && (
         <div className="page beginner-page">
           <button className="back-link" onClick={() => setView("home")}>← 返回学习台</button>
-          <header className="beginner-hero"><div><p className="kicker">无痛式技术入门</p><h1>先获得一次<em>“原来我也能懂”</em>的体验。</h1><p>这里没有入门考试，也不会要求你先学完编程。选一个与你有关的目标，15 分钟完成第一轮。</p></div><div className="beginner-promise"><span>今天不需要</span><p>安装环境</p><p>背诵语法</p><p>读完整仓库</p><b>只需要保持一点好奇心。</b></div></header>
+          <header className="beginner-hero"><div><p className="kicker">仓库专属 · 无痛式入门</p><h1>不是同一套科普，<br /><em>每篇文章都有自己的入口。</em></h1><p>先选择一篇 GitHub 文章。系统会根据它的内容生成不同的兴趣钩子、互动体验、全局地图和阅读挑战。</p></div><div className="beginner-promise"><span>这一轮不需要</span><p>安装环境</p><p>背诵语法</p><p>读完整仓库</p><b>先用 10 分钟抓住这篇文章。</b></div></header>
 
-          <section className="beginner-track-section"><div className="section-heading"><div><p className="overline">第一步 · 从兴趣出发</p><h2>你最想先获得什么？</h2></div><span>没有正确答案，随时可以换</span></div><div className="beginner-track-grid">{beginnerTracks.map((track, index) => <button className={beginnerTrackId === track.id ? "active" : ""} key={track.id} onClick={() => chooseBeginnerTrack(track.id)}><span>0{index + 1}</span><strong>{track.label}</strong><p>{track.promise}</p></button>)}</div></section>
+          <section className="beginner-track-section"><div className="section-heading"><div><p className="overline">第一步 · 选择当前文章</p><h2>你今天想读懂哪一个仓库？</h2></div><span>切换仓库后，体验内容会一起变化</span></div><div className="beginner-track-grid">{beginnerTracks.map((track, index) => <button className={beginnerTrackId === track.id ? "active" : ""} key={track.id} onClick={() => chooseBeginnerTrack(track.id)}><span>0{index + 1} · {track.role}</span><strong>{track.repository}</strong><small>{track.owner}</small><p>{track.promise}</p></button>)}</div></section>
 
           <section className="beginner-journey">
-            <div className="journey-heading"><div><p className="overline">你的 15 分钟体验</p><h2>{currentBeginnerTrack.title}</h2><p>{currentBeginnerTrack.promise}</p></div><aside><span>今天的小任务</span><strong>{currentBeginnerTrack.mission}</strong></aside></div>
+            <div className="journey-heading"><div><p className="overline">{currentBeginnerTrack.repository} · 专属体验</p><h2>{currentBeginnerTrack.title}</h2><p>{currentBeginnerTrack.promise}</p></div><aside><span>完成后你能够</span><strong>{currentBeginnerTrack.outcome}</strong></aside></div>
             <div className="journey-progress">{currentBeginnerTrack.stages.map((stage, index) => <button className={`${index === beginnerStage ? "active" : ""} ${index < beginnerStage ? "done" : ""}`} key={stage.title} onClick={() => setBeginnerStage(index)}><span>{index < beginnerStage ? "✓" : `0${index + 1}`}</span><b>{stage.title}</b><small>{stage.duration}</small></button>)}</div>
 
-            {beginnerTrackId === "product" && <article className="beginner-lab">
-              <header><div><p className="overline">App 内实践 01</p><h3>在 App 内运行一次 Agent</h3></div><span className="lab-status">{beginnerLabComplete ? "已完成" : "不用安装任何工具"}</span></header>
+            <div className="repo-hook-card"><div><span>30 秒兴趣钩子</span><h3>{currentBeginnerTrack.hook}</h3></div><aside><small>今天的小任务</small><p>{currentBeginnerTrack.mission}</p></aside></div>
+
+            <section className="repo-mental-map"><div className="repo-section-heading"><div><p className="overline">先看全局地图</p><h3>这篇文章最重要的一条主线</h3></div><span>内容随仓库切换</span></div><div>{currentBeginnerTrack.mentalModel.map((item, index) => <article key={item.title}><span>{String(index + 1).padStart(2, "0")}</span><strong>{item.title}</strong><p>{item.detail}</p></article>)}</div></section>
+
+            {beginnerTrackId === "how" && <article className="beginner-lab">
+              <header><div><p className="overline">当前仓库实践 · Agent Loop</p><h3>在 App 内观察一次完整循环</h3></div><span className="lab-status">{beginnerLabComplete ? "已形成全局直觉" : "对应 README 的核心主线"}</span></header>
               <div className="lab-workspace">
                 <label className="lab-field"><span>交给 Agent 的任务</span><textarea value={agentTask} onChange={(event) => { setAgentTask(event.target.value); setBeginnerLabComplete(false); }} /></label>
                 <div className="agent-runner">
-                  {["理解你的目标", "选择文章阅读工具", "提取并整理重点", "检查结果并交付"].map((step, index) => <div className={beginnerLabStep > index || beginnerLabComplete ? "done" : beginnerLabStep === index ? "active" : ""} key={step}><span>{beginnerLabStep > index || beginnerLabComplete ? "✓" : index + 1}</span><p><b>{step}</b><small>{index === 0 ? "先确认要解决什么" : index === 1 ? "决定用什么能力" : index === 2 ? "把资料变成清晰结构" : "确认没有漏掉任务要求"}</small></p></div>)}
+                  {["模型理解目标", "模型申请 Read 工具", "程序返回 README 内容", "模型基于新观察继续判断"].map((step, index) => <div className={beginnerLabStep > index || beginnerLabComplete ? "done" : beginnerLabStep === index ? "active" : ""} key={step}><span>{beginnerLabStep > index || beginnerLabComplete ? "✓" : index + 1}</span><p><b>{step}</b><small>{index === 0 ? "目标进入当前上下文" : index === 1 ? "模型决定下一步行动" : index === 2 ? "工具结果成为新信息" : "继续调用工具或交付答案"}</small></p></div>)}
                 </div>
                 {!beginnerLabComplete && <button className="lab-primary" onClick={() => { if (beginnerLabStep < 3) { setBeginnerLabStep((step) => step + 1); setBeginnerStage((stage) => Math.min(stage + 1, 2)); } else finishBeginnerLab(); }}>{beginnerLabStep === 0 ? "让 Agent 开始工作 →" : beginnerLabStep < 3 ? "观察下一步 →" : "查看 Agent 的结果 →"}</button>}
               </div>
-              {beginnerLabComplete && <div className="lab-result"><span>你的第一份 Agent 成果</span><h4>文章已经被整理成可学习的结构</h4><ol><li>先看文章在解决什么问题，而不是逐句翻译。</li><li>Agent 会在“理解目标—使用工具—观察结果”之间循环。</li><li>最后用一道复习题检查自己是否真的理解。</li></ol><p><b>复习题：</b>为什么 Agent 不等于一次普通聊天？</p></div>}
+              {beginnerLabComplete && <div className="lab-result"><span>how-claude-code-works · 你的第一张系统地图</span><h4>Agent 不是一次回答，而是一段由新观察推动的循环</h4><ol><li>模型负责判断，但不会自己打开文件。</li><li>工具负责行动，并把结果重新送回上下文。</li><li>模型看到结果后，才能决定继续行动还是结束。</li></ol><p><b>带入原文的问题：</b>如果 Tool Result 没有回到模型，循环会在哪一步断掉？</p></div>}
             </article>}
 
-            {beginnerTrackId === "maker" && <article className="beginner-lab">
-              <header><div><p className="overline">App 内实践 02</p><h3>把想法拼成第一个小工具</h3></div><span className="lab-status">三格就能开始</span></header>
+            {beginnerTrackId === "scratch" && <article className="beginner-lab">
+              <header><div><p className="overline">当前仓库实践 · 最小实现</p><h3>组装一个最小 Agent 蓝图</h3></div><span className="lab-status">对应 from-scratch 教程结构</span></header>
               <div className="maker-builder">
-                <label className="lab-field"><span>我遇到的问题</span><input value={makerProblem} onChange={(event) => { setMakerProblem(event.target.value); setBeginnerLabComplete(false); }} /></label><b>→</b>
-                <label className="lab-field"><span>用户会提供</span><input value={makerInput} onChange={(event) => { setMakerInput(event.target.value); setBeginnerLabComplete(false); }} /></label><b>→</b>
-                <label className="lab-field"><span>工具应该交付</span><input value={makerOutput} onChange={(event) => { setMakerOutput(event.target.value); setBeginnerLabComplete(false); }} /></label>
+                <label className="lab-field"><span>模型负责什么</span><input value={makerProblem} onChange={(event) => { setMakerProblem(event.target.value); setBeginnerLabComplete(false); }} /></label><b>→</b>
+                <label className="lab-field"><span>工具负责什么</span><input value={makerInput} onChange={(event) => { setMakerInput(event.target.value); setBeginnerLabComplete(false); }} /></label><b>→</b>
+                <label className="lab-field"><span>循环何时结束</span><input value={makerOutput} onChange={(event) => { setMakerOutput(event.target.value); setBeginnerLabComplete(false); }} /></label>
               </div>
-              <button className="lab-primary" onClick={finishBeginnerLab}>在 App 内生成小工具蓝图 →</button>
-              {beginnerLabComplete && <div className="lab-result tool-blueprint"><span>README 小白翻译器 · 第一版蓝图</span><h4>{makerProblem}</h4><div><p><small>输入</small>{makerInput}</p><b>AI 阅读并按你的要求整理</b><p><small>输出</small>{makerOutput}</p></div><p>你刚刚完成了产品最关键的一步：把模糊想法变成了可以实现和验证的流程。</p></div>}
+              <button className="lab-primary" onClick={finishBeginnerLab}>生成最小 Agent 蓝图 →</button>
+              {beginnerLabComplete && <div className="lab-result tool-blueprint"><span>claude-code-from-scratch · 最小实现蓝图</span><h4>模型判断与程序执行，通过循环连接起来</h4><div><p><small>模型</small>{makerProblem}</p><b>Tool Call → Tool Result</b><p><small>工具与循环</small>{makerInput}<br />{makerOutput}</p></div><p><b>带入原文的问题：</b>工具定义、工具执行和 Tool Result，为什么少一个都不能形成 Agent Loop？</p></div>}
             </article>}
 
-            {beginnerTrackId === "career" && <article className="beginner-lab">
-              <header><div><p className="overline">App 内实践 03</p><h3>完成一次技术岗位情境演练</h3></div><span className="lab-status">不考编程</span></header>
-              <div className="scenario-card"><span>真实工作场景</span><h4>一家教育公司做了 AI FAQ 助手，但用户反馈“答案经常不准确”。</h4><p>选择一个你想体验的角色，给出第一步解决思路。</p></div>
-              <div className="role-picker">{([ ["product", "AI 产品经理", "定义问题和成功标准"], ["solution", "AI 解决方案顾问", "连接业务需求与技术方案"], ["data", "数据 / AI 运营", "用数据发现和验证问题"] ] as const).map(([id, name, detail]) => <button className={careerChoice === id ? "active" : ""} key={id} onClick={() => { setCareerChoice(id); setBeginnerLabComplete(false); }}><strong>{name}</strong><span>{detail}</span></button>)}</div>
-              <button className="lab-primary" onClick={finishBeginnerLab}>提交我的判断，生成岗位成果 →</button>
-              {beginnerLabComplete && <div className="lab-result career-result"><span>你刚完成了一次「{careerResult.name}」任务</span><h4>{careerResult.action}</h4><p><b>可写进项目复盘的表达：</b>{careerResult.evidence}</p></div>}
+            {beginnerTrackId === "reverse" && <article className="beginner-lab">
+              <header><div><p className="overline">当前仓库实践 · 证据推理</p><h3>给一条逆向结论标注可信度</h3></div><span className="lab-status">不需要读懂全部请求字段</span></header>
+              <div className="scenario-card"><span>日志里实际观察到</span><h4>一次任务的请求记录里出现了 Read 工具调用，随后文件内容作为 Tool Result 进入了下一轮消息。</h4><p><b>待判断结论：</b>“Claude Code 内部一定只用这一种方式读取所有文件。”这属于哪一类？</p></div>
+              <div className="role-picker">{([ ["evidence", "直接证据", "日志已经足以完整证明这句话"], ["inference", "合理推断", "有证据支持，但结论范围比证据更大"], ["unknown", "目前未知", "这些记录完全无法提供任何线索"] ] as const).map(([id, name, detail]) => <button className={evidenceChoice === id ? "active" : ""} key={id} onClick={() => { setEvidenceChoice(id); setBeginnerLabComplete(false); }}><strong>{name}</strong><span>{detail}</span></button>)}</div>
+              <button className="lab-primary" onClick={finishBeginnerLab}>提交判断，查看证据边界 →</button>
+              {beginnerLabComplete && <div className="lab-result career-result"><span>claude-code-reverse · 证据判断结果</span><h4>{evidenceResult.verdict}</h4><p><b>下一步：</b>{evidenceResult.confidence}</p></div>}
             </article>}
 
             {beginnerLabComplete && <div className="artifact-actions"><div><span>本次体验已留下一份可见成果</span><strong>{beginnerArtifact}</strong></div><button onClick={saveBeginnerArtifact}>{beginnerArtifactSaved ? "✓ 已保存到学习成果" : "保存到我的学习成果"}</button></div>}
+            <div className="beginner-to-reading"><div><span>下一步 · 带着地图进入原文</span><strong>{currentBeginnerTrack.transfer}</strong><p>伴读侧栏会自动跟随当前章节；每条回答都可以定位回对应原文。</p></div><button onClick={startBeginnerReading}>开始伴读 {currentBeginnerTrack.repository} →</button></div>
           </section>
 
-          <section className="plain-language"><div><p className="overline">遇到术语，不要硬背</p><h2>技术词先翻译成人话</h2></div><div className="plain-grid"><article><span>Agent</span><strong>会自己推进任务的助手</strong><p>像一位拿到目标后，会主动查资料、做事并汇报的实习生。</p></article><article><span>API</span><strong>软件之间约定好的服务窗口</strong><p>像点餐窗口：按规定提交需求，就能拿到标准结果。</p></article><article><span>Context</span><strong>助手当前桌面上的全部资料</strong><p>桌面太满时，需要整理重点，才能继续专注完成任务。</p></article></div></section>
+          <section className="plain-language"><div><p className="overline">{currentBeginnerTrack.repository} · 术语翻译</p><h2>只解释这篇文章马上会用到的词</h2></div><div className="plain-grid">{currentBeginnerTrack.terms.map((item) => <article key={item.term}><span>{item.term}</span><strong>{item.plain}</strong><p>{item.example}</p></article>)}</div></section>
         </div>
       )}
 
@@ -1153,7 +1229,7 @@ export default function Home() {
                   <article className={`document-card ${expandedDocument === document.name ? "expanded" : ""}`} key={document.name}>
                     <div className="document-number">0{index + 1}</div>
                     <div className="document-main"><span className="relation-badge">示范 · {document.role}</span><h3>{document.name}</h3><small>{document.owner}</small><p>{document.summary}</p><div className="concept-tags">{document.concepts.map((concept) => <span key={concept}>{concept}</span>)}</div></div>
-                    <div className="document-outline"><strong>原文大纲</strong><ol>{document.outline.map((item) => <li key={item}>{item}</li>)}</ol><div className="document-actions"><button className="read-inside" onClick={() => openDocument(document.name)}>在 App 内阅读</button><button aria-expanded={expandedDocument === document.name} onClick={() => setExpandedDocument(expandedDocument === document.name ? null : document.name)}>{expandedDocument === document.name ? "收起详细大纲" : "查看详细大纲"}</button><a href={document.url} target="_blank" rel="noreferrer">GitHub ↗</a></div></div>
+                    <div className="document-outline"><strong>原文大纲</strong><ol>{document.outline.map((item) => <li key={item}>{item}</li>)}</ol><div className="document-actions"><button className="beginner-inside" onClick={() => openBeginnerExperience(document.name)}>先无痛入门</button><button className="read-inside" onClick={() => openDocument(document.name)}>在 App 内阅读</button><button aria-expanded={expandedDocument === document.name} onClick={() => setExpandedDocument(expandedDocument === document.name ? null : document.name)}>{expandedDocument === document.name ? "收起详细大纲" : "查看详细大纲"}</button><a href={document.url} target="_blank" rel="noreferrer">GitHub ↗</a></div></div>
                     {expandedDocument === document.name && <div className="detailed-outline"><div className="outline-heading"><div><span>完整原文大纲</span><strong>{document.sections.length} 个章节层级</strong></div><a href={document.url} target="_blank" rel="noreferrer">前往完整原文 ↗</a></div><div className="reading-guide"><div><span>预计阅读</span><strong>{document.readingTime}</strong></div><div><span>阅读建议</span><strong>{document.focus}</strong></div></div><ol>{document.sections.map((section, sectionIndex) => <li key={section.title}><span>{String(sectionIndex + 1).padStart(2, "0")}</span><div><h4>{section.title}</h4><p><b>本章解决的问题</b>{section.purpose}</p><div className="section-points"><b>章节内部重点</b>{section.points.map((point) => <em key={point}>{point}</em>)}</div></div></li>)}</ol><a className="start-original" href={document.url} target="_blank" rel="noreferrer">前往完整原文 ↗</a></div>}
                   </article>
                 ))}
@@ -1229,13 +1305,14 @@ export default function Home() {
             <div className="lesson-list">
               {readmeHeadings.map((heading, index) => <button key={`${heading.text}-${index}`} className={`lesson-item ${activeSourceSection === index ? "selected" : ""}`} onClick={() => readerMode === "guide" ? goToGuideSection(index) : goToSourceSection(index)}><span>{String(index + 1).padStart(2, "0")}</span><div><small>{readerMode === "guide" ? "当前讲解章节" : "README 原文章节"}</small><strong>{heading.text}</strong></div></button>)}
             </div>
+            <button className="sidebar-beginner-button" onClick={() => openBeginnerExperience(activeDocument.name)}>♡ 先看这篇的 10 分钟入门</button>
             <button className="sidebar-guide-button" onClick={() => { setReaderMode("guide"); setSelectedAnswer(null); }}>✦ 打开当前章节讲解</button>
           </aside>
 
           <div className="reader-center">
             <nav className="reader-mobile-tabs" aria-label="伴读工作区"><button className={mobileReaderSurface === "document" ? "active" : ""} onClick={() => setMobileReaderSurface("document")}>原文</button><button className={mobileReaderSurface === "mentor" ? "active" : ""} onClick={() => setMobileReaderSurface("mentor")}>AI 伴读</button><button className={mobileReaderSurface === "notes" ? "active" : ""} onClick={() => setMobileReaderSurface("notes")}>笔记</button></nav>
             <article className={`reading-pane ${mobileReaderSurface !== "document" ? "mobile-hidden" : ""}`}>
-              <div className="notebook-toolbar"><div><span className="live-dot"></span><strong>正在阅读 {activeDocument.owner}/{activeDocument.name}</strong></div><div className="reader-mode-switch"><button className={readerMode === "original" ? "active" : ""} onClick={() => setReaderMode("original")}>原文全文</button><button className={readerMode === "guide" ? "active" : ""} onClick={() => { setReaderMode("guide"); setSelectedAnswer(null); }}>小白讲解</button></div></div>
+              <div className="notebook-toolbar"><div><span className="live-dot"></span><strong>浏览器伴读原型 · 正在跟随 {activeDocument.owner}/{activeDocument.name}</strong></div><div className="reader-mode-switch"><button className={readerMode === "original" ? "active" : ""} onClick={() => setReaderMode("original")}>原文全文</button><button className={readerMode === "guide" ? "active" : ""} onClick={() => { setReaderMode("guide"); setSelectedAnswer(null); }}>小白讲解</button></div></div>
 
               {readerMode === "original" ? <>
                 <div className="reading-header"><div><p className="kicker">GitHub README · App 内阅读</p><h1>{activeDocument.name}</h1><p className="document-deck">{activeDocument.summary}</p></div><span className="reading-time">{activeDocument.readingTime}</span></div>
