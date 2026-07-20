@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { EMBEDDED_READMES } from "./embedded-readmes";
+import type { RepositoryLearningPackage } from "@/lib/repository-learning";
 
 type View = "home" | "beginner" | "overview" | "reader" | "review";
 type OverviewMode = "documents" | "topic" | "path" | "graph";
@@ -76,7 +77,7 @@ type RepositoryLearningPath = {
 };
 
 type BeginnerTrack = {
-  id: "how" | "scratch" | "reverse";
+  id: string;
   repository: string;
   owner: string;
   label: string;
@@ -90,7 +91,19 @@ type BeginnerTrack = {
   mentalModel: { title: string; detail: string }[];
   terms: { term: string; plain: string; example: string }[];
   transfer: string;
+  packageId?: string;
+  challenge?: string;
 };
+
+type PackageChangeSummary = {
+  status: "added" | "updated" | "unchanged";
+  added: string[];
+  changed: string[];
+  removed: string[];
+  previousSha?: string;
+};
+
+type LibraryPackage = RepositoryLearningPackage & { changeSummary?: PackageChangeSummary };
 
 const beginnerTracks: BeginnerTrack[] = [
   {
@@ -621,11 +634,35 @@ function buildGrowingRepositoryLayers(repoUrl: string): LearningPathLayer[] {
   ];
 }
 
+function compareLearningPackages(previous: LibraryPackage | undefined, next: RepositoryLearningPackage): PackageChangeSummary {
+  if (!previous) return { status: "added", added: next.sections.map((section) => section.title).slice(0, 8), changed: [], removed: [] };
+  if (previous.sourceSha === next.sourceSha) return { status: "unchanged", added: [], changed: [], removed: [], previousSha: previous.sourceSha };
+  const previousByKey = new Map(previous.sections.map((section) => [`${section.sourcePath}:${section.title}`, section]));
+  const nextByKey = new Map(next.sections.map((section) => [`${section.sourcePath}:${section.title}`, section]));
+  const added = [...nextByKey.entries()].filter(([key]) => !previousByKey.has(key)).map(([, section]) => section.title);
+  const removed = [...previousByKey.entries()].filter(([key]) => !nextByKey.has(key)).map(([, section]) => section.title);
+  const changed = [...nextByKey.entries()].filter(([key, section]) => {
+    const old = previousByKey.get(key);
+    return old && `${old.excerpt}${old.keyPoints.join("")}` !== `${section.excerpt}${section.keyPoints.join("")}`;
+  }).map(([, section]) => section.title);
+  return { status: "updated", added: added.slice(0, 10), changed: changed.slice(0, 10), removed: removed.slice(0, 10), previousSha: previous.sourceSha };
+}
+
+function createLibraryId() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return `library_${crypto.randomUUID().replace(/-/g, "")}`;
+  return `library_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 18)}`;
+}
+
 export default function Home() {
   const [view, setView] = useState<View>("home");
   const [repoUrl, setRepoUrl] = useState("");
   const [importing, setImporting] = useState(false);
   const [importMessage, setImportMessage] = useState("");
+  const [libraryId, setLibraryId] = useState("");
+  const [knowledgePackages, setKnowledgePackages] = useState<LibraryPackage[]>([]);
+  const [refreshingPackageId, setRefreshingPackageId] = useState<string | null>(null);
+  const [syncingLibrary, setSyncingLibrary] = useState(false);
+  const [libraryLoading, setLibraryLoading] = useState(true);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
   const [lessonComplete, setLessonComplete] = useState(false);
   const [cardIndex, setCardIndex] = useState(0);
@@ -674,6 +711,45 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    const existing = window.localStorage.getItem("starmate-library-id");
+    const id = existing || createLibraryId();
+    if (!existing) window.localStorage.setItem("starmate-library-id", id);
+    /* eslint-disable-next-line react-hooks/set-state-in-effect -- initialize the anonymous durable library after mount */
+    setLibraryId(id);
+  }, []);
+
+  useEffect(() => {
+    if (!libraryId) return;
+    let cancelled = false;
+    fetch(`/api/repository?libraryId=${encodeURIComponent(libraryId)}`, { cache: "no-store" })
+      .then(async (response) => {
+        const result = (await response.json()) as { packages?: RepositoryLearningPackage[]; error?: string };
+        if (!response.ok) throw new Error(result.error || "知识库读取失败");
+        if (!cancelled) setKnowledgePackages(result.packages || []);
+      })
+      .catch(() => { /* New or offline libraries begin empty and can retry when adding a repository. */ })
+      .finally(() => { if (!cancelled) setLibraryLoading(false); });
+    return () => { cancelled = true; };
+  }, [libraryId]);
+
+  useEffect(() => {
+    if (!libraryId) return;
+    const incomingRepository = new URLSearchParams(window.location.search).get("repo") || "";
+    if (!incomingRepository.startsWith("https://github.com/")) return;
+    const sessionKey = `starmate-extension-import:${incomingRepository}`;
+    /* eslint-disable react-hooks/set-state-in-effect -- hydrate a repository link sent by the Chrome extension */
+    setRepoUrl(incomingRepository);
+    setImportMessage("已收到 Chrome 伴读侧栏中的仓库，正在生成学习包…");
+    /* eslint-enable react-hooks/set-state-in-effect */
+    if (!window.sessionStorage.getItem(sessionKey)) {
+      window.sessionStorage.setItem(sessionKey, "true");
+      void generateLearningPackage(incomingRepository);
+    }
+    // The import should run only when the durable library identity becomes available.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [libraryId]);
+
+  useEffect(() => {
     let cancelled = false;
     fetch("/api/mentor", { cache: "no-store" })
       .then(async (response) => {
@@ -690,27 +766,86 @@ export default function Home() {
   const currentCard = reviewCards[cardIndex];
   const selectedRepos = useMemo(() => starredRepos.filter((repo) => savedRepoIds.includes(repo.id)), [starredRepos, savedRepoIds]);
   const graphRepos = selectedRepos.slice(0, 6);
-  const currentBeginnerTrack = beginnerTracks.find((track) => track.id === beginnerTrackId) || beginnerTracks[0];
+  const dynamicBeginnerTracks = useMemo<BeginnerTrack[]>(() => knowledgePackages.map((learningPackage) => ({
+    id: `repo:${learningPackage.id}`,
+    packageId: learningPackage.id,
+    repository: learningPackage.fullName,
+    owner: learningPackage.owner,
+    label: learningPackage.beginner.label,
+    role: learningPackage.kindLabel,
+    title: `用 10 分钟进入 ${learningPackage.name}`,
+    promise: learningPackage.summary,
+    hook: learningPackage.beginner.hook,
+    mission: learningPackage.beginner.mission,
+    outcome: learningPackage.beginner.outcome,
+    stages: [
+      { title: "30 秒兴趣", duration: "先判断价值", action: learningPackage.beginner.hook, result: "知道为什么值得读" },
+      { title: "3 分钟地图", duration: "查看真实大纲", action: learningPackage.recommendedStart, result: "抓住阅读顺序" },
+      { title: "5 分钟任务", duration: "完成仓库挑战", action: learningPackage.beginner.mission, result: "留下学习成果" },
+      { title: "2 分钟原文", duration: "带问题阅读", action: learningPackage.beginner.challenge, result: "进入真实章节" },
+    ],
+    mentalModel: learningPackage.beginner.mentalModel,
+    terms: learningPackage.concepts.slice(0, 3).map((concept) => ({ term: concept.name, plain: concept.plain, example: concept.evidence })),
+    transfer: learningPackage.beginner.outcome,
+    challenge: learningPackage.beginner.challenge,
+  })), [knowledgePackages]);
+  const availableBeginnerTracks = useMemo(() => [...beginnerTracks, ...dynamicBeginnerTracks], [dynamicBeginnerTracks]);
+  const currentBeginnerTrack = availableBeginnerTracks.find((track) => track.id === beginnerTrackId) || availableBeginnerTracks[0];
+  const currentDynamicPackage = currentBeginnerTrack.packageId ? knowledgePackages.find((item) => item.id === currentBeginnerTrack.packageId) : undefined;
+  const conceptGroups = useMemo(() => {
+    const groups = new Map<string, { plain: string; repositories: string[]; evidence: string }>();
+    knowledgePackages.forEach((learningPackage) => learningPackage.concepts.forEach((concept) => {
+      const current = groups.get(concept.name) || { plain: concept.plain, repositories: [], evidence: concept.evidence };
+      if (!current.repositories.includes(learningPackage.fullName)) current.repositories.push(learningPackage.fullName);
+      groups.set(concept.name, current);
+    }));
+    return [...groups.entries()].map(([name, value]) => ({ name, ...value })).sort((a, b) => b.repositories.length - a.repositories.length || a.name.localeCompare(b.name));
+  }, [knowledgePackages]);
+  const packageRelations = useMemo(() => {
+    const relations: { from: string; to: string; concepts: string[] }[] = [];
+    knowledgePackages.forEach((from, index) => knowledgePackages.slice(index + 1).forEach((to) => {
+      const concepts = from.concepts.map((concept) => concept.name).filter((name) => to.concepts.some((concept) => concept.name === name));
+      if (concepts.length) relations.push({ from: from.fullName, to: to.fullName, concepts });
+    }));
+    return relations.sort((a, b) => b.concepts.length - a.concepts.length).slice(0, 12);
+  }, [knowledgePackages]);
   const evidenceResult = {
     evidence: { label: "直接证据", verdict: "选择偏强：日志能证明出现了 Read 工具调用，但不能单独证明全部内部架构。", confidence: "高可信地描述本次行为，低可信地外推所有场景。" },
     inference: { label: "合理推断", verdict: "判断正确：现有记录支持这个解释，但“内部一定如此实现”仍需要更多场景或源码证据。", confidence: "保留边界，继续用不同任务的日志交叉验证。" },
     unknown: { label: "目前未知", verdict: "过于保守：日志已经提供了一部分行为证据，只是证据还不足以证明唯一实现。", confidence: "可以形成暂定结论，但需要明确写出可信度。" },
   }[evidenceChoice];
-  const beginnerArtifact = beginnerTrackId === "how"
+  const beginnerArtifact = currentDynamicPackage
+    ? `${currentDynamicPackage.fullName} 入门成果｜${currentDynamicPackage.beginner.mission}｜挑战：${currentDynamicPackage.beginner.challenge}`
+    : beginnerTrackId === "how"
     ? `how-claude-code-works 入门成果｜任务：${agentTask}｜我画出了目标—模型—工具—结果回传的 Agent Loop。`
     : beginnerTrackId === "scratch"
       ? `claude-code-from-scratch 入门成果｜${makerProblem}｜${makerInput}｜${makerOutput}`
       : `claude-code-reverse 入门成果｜我的判断：${evidenceResult.label}｜阅读原则：一次日志能证明行为，不能自动证明唯一内部实现。`;
-  const growingLibraryCount = selectedRepos.length || sourceDocuments.length;
-  const pathRepositories = useMemo(() => selectedRepos.length ? selectedRepos.slice(0, 6).map((repo) => ({
+  const growingLibraryCount = knowledgePackages.length || selectedRepos.length || sourceDocuments.length;
+  const pathRepositories = useMemo(() => knowledgePackages.length ? knowledgePackages.slice(0, 8).map((learningPackage) => ({
+    name: learningPackage.name,
+    owner: learningPackage.owner,
+    role: `${learningPackage.kindLabel} · 动态学习包`,
+    summary: learningPackage.summary,
+    duration: learningPackage.readingTime,
+    layers: buildGrowingRepositoryLayers(learningPackage.url),
+  })) : selectedRepos.length ? selectedRepos.slice(0, 6).map((repo) => ({
     name: repo.name,
     owner: repo.full_name.split("/")[0] || "GitHub",
     role: repo.language ? `${repo.language} · 我的收藏` : "我的收藏",
     summary: repo.description || "从 README 建立全局地图，再逐步走到示例、源码和验证。",
     duration: "按自己的节奏",
     layers: buildGrowingRepositoryLayers(repo.html_url),
-  })) : repositoryLearningPaths, [selectedRepos]);
+  })) : repositoryLearningPaths, [knowledgePackages, selectedRepos]);
   const topicGroups = useMemo(() => {
+    if (knowledgePackages.length) {
+      const groups = new Map<string, string[]>();
+      knowledgePackages.forEach((learningPackage) => {
+        const labels = [learningPackage.kindLabel, learningPackage.language, ...learningPackage.concepts.slice(0, 4).map((concept) => concept.name)].filter(Boolean);
+        labels.forEach((label) => groups.set(label, [...new Set([...(groups.get(label) || []), learningPackage.fullName])]));
+      });
+      return [...groups.entries()].sort((a, b) => b[1].length - a[1].length).slice(0, 8).map(([name, repos]) => ({ name, repos, note: `由已保存学习包的原文结构与概念词典持续生成。` }));
+    }
     if (!selectedRepos.length) return [
       { name: "AI Agent 基础", repos: sourceDocuments.map((document) => document.name), note: "内置示范主题，帮助你第一次体验跨文档学习。" },
       { name: "工具与上下文", repos: [sourceDocuments[0].name, sourceDocuments[2].name], note: "观察模型怎样行动，以及信息怎样在任务中流动。" },
@@ -722,9 +857,25 @@ export default function Home() {
       labels.forEach((label) => groups.set(label, [...(groups.get(label) || []), repo.full_name]));
     });
     return [...groups.entries()].sort((a, b) => b[1].length - a[1].length).slice(0, 6).map(([name, repos]) => ({ name, repos, note: `由你的收藏自动聚合，新增相关仓库后会继续扩展。` }));
-  }, [selectedRepos]);
-  const activeDocument = sourceDocuments.find((document) => document.name === activeDocumentName) || sourceDocuments[2];
-  const readmeText = useMemo(() => { try { return decodeBase64Utf8(EMBEDDED_READMES[activeDocument.name] || ""); } catch { return ""; } }, [activeDocument.name]);
+  }, [knowledgePackages, selectedRepos]);
+  const activeKnowledgePackage = knowledgePackages.find((learningPackage) => learningPackage.fullName === activeDocumentName);
+  const activeDocument = sourceDocuments.find((document) => document.name === activeDocumentName) || (activeKnowledgePackage ? {
+    name: activeKnowledgePackage.fullName,
+    owner: activeKnowledgePackage.owner,
+    role: activeKnowledgePackage.kindLabel,
+    summary: activeKnowledgePackage.summary,
+    concepts: activeKnowledgePackage.concepts.map((concept) => concept.name),
+    outline: activeKnowledgePackage.sections.slice(0, 8).map((section) => section.title),
+    readingTime: activeKnowledgePackage.readingTime,
+    focus: activeKnowledgePackage.beginner.outcome,
+    sections: activeKnowledgePackage.sections.slice(0, 20).map((section) => ({ title: section.title, purpose: section.purpose, points: section.keyPoints })),
+    url: activeKnowledgePackage.url,
+  } : sourceDocuments[2]);
+  const readerDocuments = useMemo(() => [...sourceDocuments.map((document) => ({ key: document.name, label: document.name })), ...knowledgePackages.map((learningPackage) => ({ key: learningPackage.fullName, label: learningPackage.name }))], [knowledgePackages]);
+  const readmeText = useMemo(() => {
+    if (activeKnowledgePackage) return activeKnowledgePackage.readmeMarkdown;
+    try { return decodeBase64Utf8(EMBEDDED_READMES[activeDocument.name] || ""); } catch { return ""; }
+  }, [activeDocument.name, activeKnowledgePackage]);
   const readmeLoading = false;
   const readmeError = !readmeText;
   const markdownBlocks = useMemo(() => parseMarkdown(readmeText), [readmeText]);
@@ -747,18 +898,89 @@ export default function Home() {
     }
   }, [repoUrl]);
 
-  function importRepo(event: React.FormEvent) {
-    event.preventDefault();
-    if (!repoName) {
+  async function generateLearningPackage(url: string) {
+    if (!url || !libraryId) {
       setImportMessage("请粘贴一个完整的 GitHub 仓库链接");
       return;
     }
     setImporting(true);
     setImportMessage("");
-    window.setTimeout(() => {
+    try {
+      const response = await fetch("/api/repository", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, libraryId }),
+      });
+      const result = (await response.json()) as { package?: RepositoryLearningPackage; error?: string; cacheStatus?: string };
+      if (!response.ok || !result.package) throw new Error(result.error || "学习包生成失败");
+      const learningPackage = result.package;
+      const previous = knowledgePackages.find((item) => item.id === learningPackage.id);
+      const next: LibraryPackage = { ...learningPackage, changeSummary: compareLearningPackages(previous, learningPackage) };
+      setKnowledgePackages((current) => [next, ...current.filter((item) => item.id !== next.id)]);
+      setBeginnerTrackId(`repo:${learningPackage.id}`);
+      setRepoUrl(learningPackage.url);
+      setImportMessage(`已生成 ${learningPackage.fullName} 的学习包：${learningPackage.sections.length} 个章节、${learningPackage.concepts.length} 个概念。`);
+      setView("beginner");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (error) {
+      setImportMessage(error instanceof Error ? error.message : "生成学习包失败，请稍后再试");
+    } finally {
       setImporting(false);
-      setImportMessage(`已识别 ${repoName}。演示版将用示例课程展示完整伴读流程。`);
-    }, 900);
+    }
+  }
+
+  async function importRepo(event: React.FormEvent) {
+    event.preventDefault();
+    if (!repoName) {
+      setImportMessage("请粘贴一个完整的 GitHub 仓库链接");
+      return;
+    }
+    await generateLearningPackage(repoUrl);
+  }
+
+  async function refreshLearningPackage(learningPackage: LibraryPackage, quiet = false) {
+    if (!libraryId) return;
+    setRefreshingPackageId(learningPackage.id);
+    try {
+      const response = await fetch("/api/repository", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: learningPackage.url, libraryId, force: true }),
+      });
+      const result = (await response.json()) as { package?: RepositoryLearningPackage; error?: string };
+      if (!response.ok || !result.package) throw new Error(result.error || "更新检查失败");
+      const next: LibraryPackage = { ...result.package, changeSummary: compareLearningPackages(learningPackage, result.package) };
+      setKnowledgePackages((current) => current.map((item) => item.id === next.id ? next : item));
+      if (!quiet) setImportMessage(next.changeSummary?.status === "unchanged" ? `${next.fullName} 暂无原文变化。` : `${next.fullName} 已更新，并生成了章节变化记录。`);
+    } catch (error) {
+      if (!quiet) setImportMessage(error instanceof Error ? error.message : "更新检查失败");
+    } finally {
+      setRefreshingPackageId(null);
+    }
+  }
+
+  async function refreshWholeLibrary() {
+    if (!knowledgePackages.length) return;
+    setSyncingLibrary(true);
+    setImportMessage("");
+    for (const learningPackage of knowledgePackages) await refreshLearningPackage(learningPackage, true);
+    setSyncingLibrary(false);
+    setImportMessage(`已检查 ${knowledgePackages.length} 个仓库的最新版本。`);
+  }
+
+  async function removeLearningPackage(learningPackage: LibraryPackage) {
+    if (!libraryId) return;
+    try {
+      await fetch("/api/repository", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: learningPackage.url, libraryId, action: "remove" }),
+      });
+      setKnowledgePackages((current) => current.filter((item) => item.id !== learningPackage.id));
+      if (activeDocumentName === learningPackage.fullName) setActiveDocumentName(sourceDocuments[0].name);
+    } catch {
+      setImportMessage("暂时无法从知识库移除，请稍后再试。");
+    }
   }
 
   function finishLesson() {
@@ -771,7 +993,7 @@ export default function Home() {
     setCardRevealed(false);
   }
 
-  function chooseBeginnerTrack(id: BeginnerTrack["id"]) {
+  function chooseBeginnerTrack(id: string) {
     setBeginnerTrackId(id);
     setBeginnerStage(0);
     setBeginnerLabStep(0);
@@ -780,7 +1002,7 @@ export default function Home() {
   }
 
   function openBeginnerExperience(repository = activeDocument.name) {
-    const track = beginnerTracks.find((item) => item.repository === repository) || beginnerTracks[0];
+    const track = availableBeginnerTracks.find((item) => item.repository === repository) || availableBeginnerTracks[0];
     chooseBeginnerTrack(track.id);
     setView("beginner");
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -1058,6 +1280,29 @@ export default function Home() {
             </div>
           </section>
 
+          <section className="knowledge-inbox">
+            <div className="knowledge-inbox-heading"><div><p className="overline">阶段 1 + 2 · 动态知识收件箱</p><h2>新增文章会自动生成学习包，更新时只记录变化</h2><p>粘贴任意公开 GitHub 仓库链接。系统会读取 README、Docs 与目录，用规则生成专属大纲、概念、无痛入门和阅读挑战。</p></div><button onClick={refreshWholeLibrary} disabled={!knowledgePackages.length || syncingLibrary}>{syncingLibrary ? "正在检查全部更新…" : "检查全部仓库更新"}</button></div>
+            {libraryLoading ? <div className="knowledge-empty">正在读取你的持久知识库…</div> : knowledgePackages.length === 0 ? <div className="knowledge-empty"><span>＋</span><div><strong>还没有动态学习包</strong><p>在上方粘贴一个 GitHub 仓库链接，第一个学习包会保存在这里。</p></div></div> : <div className="knowledge-package-grid">
+              {knowledgePackages.map((learningPackage) => <article key={learningPackage.id}>
+                <header><span>{learningPackage.kindLabel}</span><small>{learningPackage.language || "GitHub 文档"} · ★ {learningPackage.stars.toLocaleString()}</small></header>
+                <h3>{learningPackage.fullName}</h3><p>{learningPackage.summary}</p>
+                <div className="package-stats"><span><b>{learningPackage.sections.length}</b> 个章节</span><span><b>{learningPackage.concepts.length}</b> 个概念</span><span><b>{learningPackage.files.length}</b> 个文件索引</span></div>
+                {learningPackage.changeSummary && <div className={`package-change ${learningPackage.changeSummary.status}`}><strong>{learningPackage.changeSummary.status === "added" ? "首次加入知识库" : learningPackage.changeSummary.status === "unchanged" ? "原文暂无变化" : "发现原文更新"}</strong>{learningPackage.changeSummary.status === "updated" && <p>新增 {learningPackage.changeSummary.added.length} 节 · 修改 {learningPackage.changeSummary.changed.length} 节 · 删除 {learningPackage.changeSummary.removed.length} 节</p>}</div>}
+                <div className="package-concepts">{learningPackage.concepts.slice(0, 5).map((concept) => <span key={concept.name}>{concept.name}</span>)}</div>
+                <footer><button onClick={() => openBeginnerExperience(learningPackage.fullName)}>专属无痛入门</button><button onClick={() => openDocument(learningPackage.fullName)}>App 内阅读</button><button onClick={() => refreshLearningPackage(learningPackage)} disabled={refreshingPackageId === learningPackage.id}>{refreshingPackageId === learningPackage.id ? "检查中…" : "检查更新"}</button><button className="remove-package" onClick={() => removeLearningPackage(learningPackage)}>移除</button></footer>
+              </article>)}
+            </div>}
+          </section>
+
+          <section className="living-knowledge-base">
+            <div className="knowledge-inbox-heading"><div><p className="overline">阶段 3 · 不断生长的知识库</p><h2>仓库越多，共同概念和文档关系越清楚</h2><p>关系来自文章实际出现的概念与技术标签；每条关系都会说明因为什么相连。</p></div><button onClick={() => { setOverviewMode("graph"); setView("overview"); }}>打开完整知识图谱 →</button></div>
+            {knowledgePackages.length ? <div className="living-knowledge-grid"><div><span>已持久保存</span><strong>{knowledgePackages.length}</strong><small>个仓库学习包</small></div><div><span>已识别</span><strong>{conceptGroups.length}</strong><small>个可解释概念</small></div><div><span>已建立</span><strong>{packageRelations.length}</strong><small>条跨仓库关系</small></div><aside>{conceptGroups.slice(0, 6).map((concept) => <span key={concept.name}>{concept.name}<b>{concept.repositories.length}</b></span>)}</aside></div> : <div className="knowledge-empty"><span>◎</span><div><strong>加入两个以上仓库后，关系会自动出现</strong><p>相同概念会合并，不同仓库会根据解释、实现或证据角色建立关系。</p></div></div>}
+          </section>
+
+          <section className="extension-download">
+            <div><p className="overline">阶段 4 · Chrome 伴读侧栏实验版</p><h2>不离开 GitHub，也能看目录、搜原文和记笔记</h2><p>插件读取当前页面真实内容，不使用模型生成答案。点击“加入星伴读”后，仓库会回到 Web App 自动生成并保存学习包。</p><div><span>✓ 原文章节定位</span><span>✓ 当前页面搜索</span><span>✓ 仓库独立笔记</span><span>✓ 一键加入知识库</span></div></div><aside><a href="/starmate-chrome-extension.zip" download>下载 Chrome 插件实验版</a><small>下载并解压后，在 Chrome 扩展程序页面选择“加载已解压的扩展程序”</small></aside>
+          </section>
+
           <section className="beginner-entry">
             <div className="beginner-entry-copy"><p className="overline">每个仓库一套入口 · 10 分钟</p><h2>先喜欢上技术，再慢慢学技术。</h2><p>不再重复同一套简单科普。根据当前 GitHub 文章生成兴趣钩子、互动体验、全局地图和原文挑战。</p><button onClick={() => openBeginnerExperience(beginnerTracks[0].repository)}>选择一篇开始 <span>→</span></button></div>
             <div className="beginner-entry-steps" aria-label="无痛入门四步"><div><span>01</span><b>选兴趣</b><small>从真实目标出发</small></div><i>→</i><div><span>02</span><b>先体验</b><small>三分钟看到结果</small></div><i>→</i><div><span>03</span><b>懂原理</b><small>术语翻译成人话</small></div><i>→</i><div><span>04</span><b>得成果</b><small>留下第一份作品</small></div></div>
@@ -1151,7 +1396,7 @@ export default function Home() {
           <button className="back-link" onClick={() => setView("home")}>← 返回学习台</button>
           <header className="beginner-hero"><div><p className="kicker">仓库专属 · 无痛式入门</p><h1>不是同一套科普，<br /><em>每篇文章都有自己的入口。</em></h1><p>先选择一篇 GitHub 文章。系统会根据它的内容生成不同的兴趣钩子、互动体验、全局地图和阅读挑战。</p></div><div className="beginner-promise"><span>这一轮不需要</span><p>安装环境</p><p>背诵语法</p><p>读完整仓库</p><b>先用 10 分钟抓住这篇文章。</b></div></header>
 
-          <section className="beginner-track-section"><div className="section-heading"><div><p className="overline">第一步 · 选择当前文章</p><h2>你今天想读懂哪一个仓库？</h2></div><span>切换仓库后，体验内容会一起变化</span></div><div className="beginner-track-grid">{beginnerTracks.map((track, index) => <button className={beginnerTrackId === track.id ? "active" : ""} key={track.id} onClick={() => chooseBeginnerTrack(track.id)}><span>0{index + 1} · {track.role}</span><strong>{track.repository}</strong><small>{track.owner}</small><p>{track.promise}</p></button>)}</div></section>
+          <section className="beginner-track-section"><div className="section-heading"><div><p className="overline">第一步 · 选择当前文章</p><h2>你今天想读懂哪一个仓库？</h2></div><span>新增仓库后，会自动出现在这里</span></div><div className="beginner-track-grid">{availableBeginnerTracks.slice(0, 12).map((track, index) => <button className={beginnerTrackId === track.id ? "active" : ""} key={track.id} onClick={() => chooseBeginnerTrack(track.id)}><span>{String(index + 1).padStart(2, "0")} · {track.role}</span><strong>{track.repository}</strong><small>{track.owner}</small><p>{track.promise}</p></button>)}</div></section>
 
           <section className="beginner-journey">
             <div className="journey-heading"><div><p className="overline">{currentBeginnerTrack.repository} · 专属体验</p><h2>{currentBeginnerTrack.title}</h2><p>{currentBeginnerTrack.promise}</p></div><aside><span>完成后你能够</span><strong>{currentBeginnerTrack.outcome}</strong></aside></div>
@@ -1190,6 +1435,16 @@ export default function Home() {
               <div className="role-picker">{([ ["evidence", "直接证据", "日志已经足以完整证明这句话"], ["inference", "合理推断", "有证据支持，但结论范围比证据更大"], ["unknown", "目前未知", "这些记录完全无法提供任何线索"] ] as const).map(([id, name, detail]) => <button className={evidenceChoice === id ? "active" : ""} key={id} onClick={() => { setEvidenceChoice(id); setBeginnerLabComplete(false); }}><strong>{name}</strong><span>{detail}</span></button>)}</div>
               <button className="lab-primary" onClick={finishBeginnerLab}>提交判断，查看证据边界 →</button>
               {beginnerLabComplete && <div className="lab-result career-result"><span>claude-code-reverse · 证据判断结果</span><h4>{evidenceResult.verdict}</h4><p><b>下一步：</b>{evidenceResult.confidence}</p></div>}
+            </article>}
+
+            {currentDynamicPackage && <article className="beginner-lab dynamic-repo-lab">
+              <header><div><p className="overline">动态学习包 · {currentDynamicPackage.kindLabel}</p><h3>{currentDynamicPackage.beginner.mission}</h3></div><span className="lab-status">来自 {currentDynamicPackage.sections.length} 个真实章节</span></header>
+              <div className="dynamic-outline-preview">
+                {currentDynamicPackage.sections.slice(0, 4).map((section, index) => <button className={beginnerStage === index ? "active" : ""} key={section.id} onClick={() => setBeginnerStage(index)}><span>{String(index + 1).padStart(2, "0")}</span><div><strong>{section.title}</strong><small>{section.purpose}</small><p>{section.excerpt}</p></div></button>)}
+              </div>
+              <div className="dynamic-challenge"><span>带入原文的挑战</span><h4>{currentDynamicPackage.beginner.challenge}</h4><p>推荐顺序：{currentDynamicPackage.recommendedStart}</p></div>
+              <button className="lab-primary" onClick={finishBeginnerLab}>生成我的仓库阅读任务 →</button>
+              {beginnerLabComplete && <div className="lab-result"><span>{currentDynamicPackage.fullName} · 已生成</span><h4>{currentDynamicPackage.beginner.outcome}</h4><ol>{currentDynamicPackage.sections.slice(0, 3).map((section) => <li key={section.id}>{section.title}：{section.purpose}</li>)}</ol><p><b>学习成果：</b>完成挑战后，把自己的答案保存到文档笔记。</p></div>}
             </article>}
 
             {beginnerLabComplete && <div className="artifact-actions"><div><span>本次体验已留下一份可见成果</span><strong>{beginnerArtifact}</strong></div><button onClick={saveBeginnerArtifact}>{beginnerArtifactSaved ? "✓ 已保存到学习成果" : "保存到我的学习成果"}</button></div>}
@@ -1231,6 +1486,14 @@ export default function Home() {
                     <div className="document-main"><span className="relation-badge">示范 · {document.role}</span><h3>{document.name}</h3><small>{document.owner}</small><p>{document.summary}</p><div className="concept-tags">{document.concepts.map((concept) => <span key={concept}>{concept}</span>)}</div></div>
                     <div className="document-outline"><strong>原文大纲</strong><ol>{document.outline.map((item) => <li key={item}>{item}</li>)}</ol><div className="document-actions"><button className="beginner-inside" onClick={() => openBeginnerExperience(document.name)}>先无痛入门</button><button className="read-inside" onClick={() => openDocument(document.name)}>在 App 内阅读</button><button aria-expanded={expandedDocument === document.name} onClick={() => setExpandedDocument(expandedDocument === document.name ? null : document.name)}>{expandedDocument === document.name ? "收起详细大纲" : "查看详细大纲"}</button><a href={document.url} target="_blank" rel="noreferrer">GitHub ↗</a></div></div>
                     {expandedDocument === document.name && <div className="detailed-outline"><div className="outline-heading"><div><span>完整原文大纲</span><strong>{document.sections.length} 个章节层级</strong></div><a href={document.url} target="_blank" rel="noreferrer">前往完整原文 ↗</a></div><div className="reading-guide"><div><span>预计阅读</span><strong>{document.readingTime}</strong></div><div><span>阅读建议</span><strong>{document.focus}</strong></div></div><ol>{document.sections.map((section, sectionIndex) => <li key={section.title}><span>{String(sectionIndex + 1).padStart(2, "0")}</span><div><h4>{section.title}</h4><p><b>本章解决的问题</b>{section.purpose}</p><div className="section-points"><b>章节内部重点</b>{section.points.map((point) => <em key={point}>{point}</em>)}</div></div></li>)}</ol><a className="start-original" href={document.url} target="_blank" rel="noreferrer">前往完整原文 ↗</a></div>}
+                  </article>
+                ))}
+                {knowledgePackages.map((learningPackage, index) => (
+                  <article className={`document-card dynamic-package ${expandedDocument === learningPackage.fullName ? "expanded" : ""}`} key={learningPackage.id}>
+                    <div className="document-number">K{index + 1}</div>
+                    <div className="document-main"><span className="relation-badge">动态 · {learningPackage.kindLabel}</span><h3>{learningPackage.fullName}</h3><small>{learningPackage.sourceSha.slice(0, 8)} · {learningPackage.readingTime}</small><p>{learningPackage.summary}</p><div className="concept-tags">{learningPackage.concepts.slice(0, 6).map((concept) => <span key={concept.name}>{concept.name}</span>)}</div></div>
+                    <div className="document-outline"><strong>真实文档大纲</strong><ol>{learningPackage.sections.slice(0, 4).map((section) => <li key={section.id}>{section.title}</li>)}</ol><div className="document-actions"><button className="beginner-inside" onClick={() => openBeginnerExperience(learningPackage.fullName)}>先无痛入门</button><button className="read-inside" onClick={() => openDocument(learningPackage.fullName)}>在 App 内阅读</button><button onClick={() => setExpandedDocument(expandedDocument === learningPackage.fullName ? null : learningPackage.fullName)}>{expandedDocument === learningPackage.fullName ? "收起完整大纲" : "查看完整大纲"}</button></div></div>
+                    {expandedDocument === learningPackage.fullName && <div className="detailed-outline"><div className="outline-heading"><div><span>由 README 与 Docs 自动生成</span><strong>{learningPackage.sections.length} 个真实章节</strong></div><a href={learningPackage.url} target="_blank" rel="noreferrer">GitHub 原文 ↗</a></div><div className="reading-guide"><div><span>推荐起点</span><strong>{learningPackage.recommendedStart}</strong></div><div><span>更新版本</span><strong>{learningPackage.sourceSha.slice(0, 12)}</strong></div></div><ol>{learningPackage.sections.slice(0, 20).map((section, sectionIndex) => <li key={section.id}><span>{String(sectionIndex + 1).padStart(2, "0")}</span><div><h4>{section.title}</h4><p><b>本章解决的问题</b>{section.purpose}</p><div className="section-points"><b>原文来源</b><em>{section.sourcePath}</em>{section.keyPoints.slice(0, 2).map((point) => <em key={point}>{point}</em>)}</div></div></li>)}</ol></div>}
                   </article>
                 ))}
                 {graphRepos.map((repo) => <article className={`document-card imported ${expandedDocument === repo.full_name ? "expanded" : ""}`} key={repo.id}><div className="document-number">★</div><div className="document-main"><span className="relation-badge">我的收藏</span><h3>{repo.full_name}</h3><p>{repo.description || "尚未提供简介"}</p></div><div className="document-outline"><strong>README 大纲</strong><p>点击后读取这个仓库 README 的真实标题。</p><div className="document-actions"><button onClick={() => { const opening = expandedDocument !== repo.full_name; setExpandedDocument(opening ? repo.full_name : null); if (opening && !repoOutlines[repo.id]?.length) loadRepoOutline(repo); }}>{expandedDocument === repo.full_name ? "收起详细大纲" : "读取详细大纲"}</button><a href={repo.html_url} target="_blank" rel="noreferrer">查看原文 ↗</a></div></div>{expandedDocument === repo.full_name && <div className="detailed-outline imported-detail">{outlineLoading === repo.id ? <p>正在读取 README…</p> : <ol>{(repoOutlines[repo.id] || ["暂未读取到目录"]).map((heading, headingIndex) => <li key={`${heading}-${headingIndex}`}><span>{String(headingIndex + 1).padStart(2, "0")}</span><div><h4>{heading}</h4><p>原文 README 章节</p></div></li>)}</ol>}<a className="start-original" href={repo.html_url} target="_blank" rel="noreferrer">打开完整 README →</a></div>}</article>)}
@@ -1283,12 +1546,13 @@ export default function Home() {
               <div className="graph-legend"><span className="legend-document">文档</span><span className="legend-concept">概念</span><span className="legend-relation">关系说明</span></div>
               <h3 className="graph-subtitle">文档之间</h3>
               <div className="relation-list">
-                {graphRepos.length >= 2 ? graphRepos.slice(0, -1).map((repo, index) => { const next = graphRepos[index + 1]; const shared = (repo.topics || []).find((topic) => (next.topics || []).includes(topic)); return <div className="relation-row" key={`${repo.id}-${next.id}`}><strong>{repo.full_name}</strong><span>{shared ? `共同主题 · ${shared}` : repo.language && repo.language === next.language ? `同为 ${repo.language}` : "学习互补"}</span><strong>{next.full_name}</strong><p>{shared ? `它们都覆盖 ${shared}，适合放在同一条主题路线中对照阅读。` : "系统根据仓库主题、语言和简介形成临时关系；加入更多收藏后会继续调整。"}</p></div>; }) : <div className="growing-empty"><span>✦</span><div><strong>加入至少两个收藏后，这里会生成真实关系</strong><p>关系来自你的仓库主题、语言和内容，不再预先写死三篇文章之间的连线。</p></div></div>}
+                {knowledgePackages.length >= 2 ? packageRelations.length ? packageRelations.map((relation) => <div className="relation-row" key={`${relation.from}-${relation.to}`}><strong>{relation.from}</strong><span>共同概念 · {relation.concepts.slice(0, 2).join(" / ")}</span><strong>{relation.to}</strong><p>两篇原文都出现并解释了 {relation.concepts.join("、")}，适合放在同一主题下对照阅读；点击文档可以继续查看各自证据。</p></div>) : <div className="growing-empty"><span>◎</span><div><strong>已有多个仓库，但暂未发现可靠共同概念</strong><p>系统不会为了让图谱热闹而强行连线；加入更多相关资料后会重新计算。</p></div></div> : graphRepos.length >= 2 ? graphRepos.slice(0, -1).map((repo, index) => { const next = graphRepos[index + 1]; const shared = (repo.topics || []).find((topic) => (next.topics || []).includes(topic)); return <div className="relation-row" key={`${repo.id}-${next.id}`}><strong>{repo.full_name}</strong><span>{shared ? `共同主题 · ${shared}` : repo.language && repo.language === next.language ? `同为 ${repo.language}` : "学习互补"}</span><strong>{next.full_name}</strong><p>{shared ? `它们都覆盖 ${shared}，适合放在同一条主题路线中对照阅读。` : "系统根据仓库主题、语言和简介形成临时关系；加入更多收藏后会继续调整。"}</p></div>; }) : <div className="growing-empty"><span>✦</span><div><strong>加入至少两个仓库后，这里会生成真实关系</strong><p>关系来自原文出现的概念、仓库主题与技术标签，不再预先写死连线。</p></div></div>}
               </div>
               <h3 className="graph-subtitle">文档与核心概念</h3>
               <div className="concept-relation-grid">
-                {graphRepos.length ? graphRepos.map((repo) => <div className="concept-relation" key={repo.id}><strong>{repo.full_name}</strong><span>我的收藏</span><div>{[repo.language || "其他技术", ...(repo.topics || []).slice(0, 3)].map((concept) => <b key={concept}>{concept}</b>)}</div><p>{repo.description || "等待从 README 提取更详细的概念。"}</p></div>) : sourceDocuments.map((document) => <div className="concept-relation starter" key={document.name}><strong>{document.name}</strong><span>内置示范</span><div>{document.concepts.map((concept) => <b key={concept}>{concept}</b>)}</div><p>{document.summary}</p></div>)}
+                {knowledgePackages.length ? knowledgePackages.map((learningPackage) => <div className="concept-relation" key={learningPackage.id}><strong>{learningPackage.fullName}</strong><span>{learningPackage.kindLabel} · 动态提取</span><div>{learningPackage.concepts.slice(0, 6).map((concept) => <b key={concept.name}>{concept.name}</b>)}</div><p>{learningPackage.summary}</p><button onClick={() => openDocument(learningPackage.fullName)}>查看原文证据 →</button></div>) : graphRepos.length ? graphRepos.map((repo) => <div className="concept-relation" key={repo.id}><strong>{repo.full_name}</strong><span>我的收藏</span><div>{[repo.language || "其他技术", ...(repo.topics || []).slice(0, 3)].map((concept) => <b key={concept}>{concept}</b>)}</div><p>{repo.description || "等待从 README 提取更详细的概念。"}</p></div>) : sourceDocuments.map((document) => <div className="concept-relation starter" key={document.name}><strong>{document.name}</strong><span>内置示范</span><div>{document.concepts.map((concept) => <b key={concept}>{concept}</b>)}</div><p>{document.summary}</p></div>)}
               </div>
+              {conceptGroups.length > 0 && <section className="concept-dictionary"><div className="mode-heading"><div><p className="overline">合并后的概念词典</p><h2>同一个概念，只保留一个入口</h2></div><p>概念会记录出现在哪些仓库，避免知识库随着收藏增长而产生大量重复卡片。</p></div><div>{conceptGroups.slice(0, 16).map((concept) => <article key={concept.name}><span>{concept.repositories.length} 个仓库</span><strong>{concept.name}</strong><p>{concept.plain}</p><small>{concept.repositories.slice(0, 3).join(" · ")}</small></article>)}</div></section>}
             </section>
           )}
         </div>
@@ -1300,7 +1564,7 @@ export default function Home() {
             <button className="back-link" onClick={() => setView("overview")}>← 返回文档地图</button>
             <p className="overline">笔记式伴读</p>
             <h2>{activeDocument.name}</h2>
-            <div className="notebook-doc-switch" aria-label="切换文章">{sourceDocuments.map((document, index) => <button className={document.name === activeDocument.name ? "active" : ""} key={document.name} title={document.name} onClick={() => openDocument(document.name)}>{index + 1}</button>)}</div>
+            <div className="notebook-doc-switch" aria-label="切换文章">{readerDocuments.slice(0, 12).map((document, index) => <button className={document.key === activeDocumentName ? "active" : ""} key={document.key} title={document.label} onClick={() => openDocument(document.key)}>{index + 1}</button>)}</div>
             <p className="sidebar-label">README 真实目录 · {readmeHeadings.length} 节</p>
             <div className="lesson-list">
               {readmeHeadings.map((heading, index) => <button key={`${heading.text}-${index}`} className={`lesson-item ${activeSourceSection === index ? "selected" : ""}`} onClick={() => readerMode === "guide" ? goToGuideSection(index) : goToSourceSection(index)}><span>{String(index + 1).padStart(2, "0")}</span><div><small>{readerMode === "guide" ? "当前讲解章节" : "README 原文章节"}</small><strong>{heading.text}</strong></div></button>)}

@@ -1,0 +1,1 @@
+CREATE INDEX `library_repositories_library_idx` ON `library_repositories` (`library_id`,`added_at`);

@@ -79,7 +79,7 @@ test("grows the learning map from saved repositories", async () => {
   assert.match(page, /selectedRepos/);
   assert.match(page, /topicGroups/);
   assert.match(page, /buildGrowingRepositoryLayers/);
-  assert.match(page, /加入至少两个收藏后/);
+  assert.match(page, /加入至少两个仓库后/);
   assert.match(page, /内置的三篇文章只是第一次使用的示范/);
 });
 
@@ -117,4 +117,41 @@ test("keeps contextual answers anchored to the current GitHub section", async ()
   assert.match(page, /定位原文 ↗/);
   assert.match(page, /浏览器伴读原型/);
   assert.match(route, /直白结论—为什么—原文位置—下一步/);
+});
+
+test("builds durable rule-based learning packages for arbitrary GitHub repositories", async () => {
+  const [page, route, learning, hosting] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/repository/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/repository-learning.ts", import.meta.url), "utf8"),
+    readFile(new URL("../.openai/hosting.json", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(page, /动态知识收件箱/);
+  assert.match(page, /compareLearningPackages/);
+  assert.match(page, /检查全部仓库更新/);
+  assert.match(page, /不断生长的知识库/);
+  assert.match(route, /repository_packages/);
+  assert.match(route, /library_repositories/);
+  assert.match(route, /force: true|body\.force/);
+  assert.match(learning, /buildRepositoryPackage/);
+  assert.match(learning, /教程型仓库/);
+  assert.match(learning, /研究／逆向型仓库/);
+  assert.match(hosting, /"d1": "DB"/);
+});
+
+test("ships a no-model Chrome reading companion", async () => {
+  const [page, manifest, content] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../extension/manifest.json", import.meta.url), "utf8"),
+    readFile(new URL("../extension/content.js", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(page, /Chrome 伴读侧栏实验版/);
+  assert.match(page, /starmate-chrome-extension\.zip/);
+  assert.match(manifest, /"manifest_version": 3/);
+  assert.match(content, /文章地图/);
+  assert.match(content, /原文搜索/);
+  assert.match(content, /加入星伴读知识库/);
+  assert.match(content, /chrome\.storage\.local/);
 });
