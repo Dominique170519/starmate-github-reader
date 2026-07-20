@@ -79,7 +79,7 @@ test("grows the learning map from saved repositories", async () => {
   assert.match(page, /selectedRepos/);
   assert.match(page, /topicGroups/);
   assert.match(page, /buildGrowingRepositoryLayers/);
-  assert.match(page, /加入至少两个仓库后/);
+  assert.match(page, /加入第一篇仓库后，单篇图谱会立即生成/);
   assert.match(page, /内置的三篇文章只是第一次使用的示范/);
 });
 
@@ -167,4 +167,13 @@ test("ships a no-model Chrome reading companion", async () => {
   assert.match(content, /原文搜索/);
   assert.match(content, /加入星伴读知识库/);
   assert.match(content, /chrome\.storage\.local/);
+});
+
+test("builds a dynamic evidence-backed graph from every saved package", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /buildKnowledgeGraph/);
+  assert.match(page, /toggleSavedRepo\(repo/);
+  assert.match(page, /starmate-last-library-check/);
+  assert.match(page, /查看原文证据/);
+  assert.doesNotMatch(page, /knowledgePackages\.length >= 2/);
 });

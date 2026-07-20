@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { EMBEDDED_READMES } from "./embedded-readmes";
+import { buildKnowledgeGraph } from "@/lib/knowledge-graph.mjs";
 import type { RepositoryLearningPackage } from "@/lib/repository-learning";
 
 type View = "home" | "beginner" | "overview" | "reader" | "review";
@@ -104,6 +105,35 @@ type PackageChangeSummary = {
 };
 
 type LibraryPackage = RepositoryLearningPackage & { changeSummary?: PackageChangeSummary };
+
+type KnowledgeGraphNode = {
+  id: string;
+  type: "project" | "document" | "section" | "concept";
+  label: string;
+  plain?: string;
+  sourcePath?: string;
+  url?: string;
+};
+
+type KnowledgeGraphEdge = {
+  from: string;
+  to: string;
+  type: "contains" | "explains" | "shared-concept";
+  conceptId?: string;
+  evidence: { url: string; relatedUrl?: string; excerpt?: string };
+};
+
+type KnowledgeGraph = {
+  nodes: KnowledgeGraphNode[];
+  edges: KnowledgeGraphEdge[];
+  changes: Array<PackageChangeSummary & {
+    packageId: string;
+    fullName: string;
+    sourceSha: string;
+    sourceUpdatedAt: string;
+    evidence: { url: string };
+  }>;
+};
 
 const beginnerTracks: BeginnerTrack[] = [
   {
@@ -707,6 +737,7 @@ export default function Home() {
   const [mentorCheckChoice, setMentorCheckChoice] = useState<number | null>(null);
   const [mentorMessages, setMentorMessages] = useState<MentorMessage[]>([{ id: 1, role: "teacher", title: "开始伴读", content: "我会跟随你当前阅读的文章和章节。选中一段原文，或直接告诉我哪里没看懂。" }]);
   const mentorMessageId = useRef(2);
+  const dailyCheckRunning = useRef(false);
   const [mobileReaderSurface, setMobileReaderSurface] = useState<"document" | "mentor" | "notes">("document");
   const [activeSourceSection, setActiveSourceSection] = useState(0);
   const [beginnerTrackId, setBeginnerTrackId] = useState<BeginnerTrack["id"]>("how");
@@ -821,23 +852,58 @@ export default function Home() {
   const availableBeginnerTracks = useMemo(() => [...beginnerTracks, ...dynamicBeginnerTracks], [dynamicBeginnerTracks]);
   const currentBeginnerTrack = availableBeginnerTracks.find((track) => track.id === beginnerTrackId) || availableBeginnerTracks[0];
   const currentDynamicPackage = currentBeginnerTrack.packageId ? knowledgePackages.find((item) => item.id === currentBeginnerTrack.packageId) : undefined;
+  const knowledgeGraph = useMemo(
+    () => buildKnowledgeGraph(knowledgePackages) as unknown as KnowledgeGraph,
+    [knowledgePackages],
+  );
+  const graphDocumentDetails = useMemo(() => knowledgeGraph.nodes
+    .filter((node) => node.type === "document")
+    .map((documentNode) => {
+      const projectEdge = knowledgeGraph.edges.find((edge) => edge.type === "contains" && edge.to === documentNode.id && edge.from.startsWith("project:"));
+      const projectNode = knowledgeGraph.nodes.find((node) => node.id === projectEdge?.from);
+      const sectionEdges = knowledgeGraph.edges.filter((edge) => edge.type === "contains" && edge.from === documentNode.id && edge.to.startsWith("section:"));
+      const sections = sectionEdges.map((sectionEdge) => {
+        const sectionNode = knowledgeGraph.nodes.find((node) => node.id === sectionEdge.to);
+        const conceptEdges = knowledgeGraph.edges.filter((edge) => edge.type === "explains" && edge.from === sectionEdge.to);
+        return {
+          id: sectionEdge.to,
+          label: sectionNode?.label || "未命名章节",
+          evidenceUrl: sectionEdge.evidence.url,
+          concepts: conceptEdges.map((edge) => {
+            const conceptNode = knowledgeGraph.nodes.find((node) => node.id === edge.to);
+            return { id: edge.to, label: conceptNode?.label || edge.to.replace("concept:", ""), evidenceUrl: edge.evidence.url };
+          }),
+        };
+      });
+      return {
+        id: documentNode.id,
+        label: documentNode.label,
+        projectLabel: projectNode?.label || "GitHub 项目",
+        evidenceUrl: documentNode.url || projectEdge?.evidence.url || "#",
+        sections,
+      };
+    }), [knowledgeGraph]);
+  const crossGraphRelations = useMemo(() => knowledgeGraph.edges
+    .filter((edge) => edge.type === "shared-concept")
+    .map((edge) => ({
+      from: knowledgeGraph.nodes.find((node) => node.id === edge.from)?.label || edge.from,
+      to: knowledgeGraph.nodes.find((node) => node.id === edge.to)?.label || edge.to,
+      concept: knowledgeGraph.nodes.find((node) => node.id === edge.conceptId)?.label || "共同概念",
+      evidenceUrl: edge.evidence.url,
+      relatedUrl: edge.evidence.relatedUrl,
+    })), [knowledgeGraph]);
   const conceptGroups = useMemo(() => {
-    const groups = new Map<string, { plain: string; repositories: string[]; evidence: string }>();
-    knowledgePackages.forEach((learningPackage) => learningPackage.concepts.forEach((concept) => {
-      const current = groups.get(concept.name) || { plain: concept.plain, repositories: [], evidence: concept.evidence };
-      if (!current.repositories.includes(learningPackage.fullName)) current.repositories.push(learningPackage.fullName);
-      groups.set(concept.name, current);
-    }));
-    return [...groups.entries()].map(([name, value]) => ({ name, ...value })).sort((a, b) => b.repositories.length - a.repositories.length || a.name.localeCompare(b.name));
-  }, [knowledgePackages]);
-  const packageRelations = useMemo(() => {
-    const relations: { from: string; to: string; concepts: string[] }[] = [];
-    knowledgePackages.forEach((from, index) => knowledgePackages.slice(index + 1).forEach((to) => {
-      const concepts = from.concepts.map((concept) => concept.name).filter((name) => to.concepts.some((concept) => concept.name === name));
-      if (concepts.length) relations.push({ from: from.fullName, to: to.fullName, concepts });
-    }));
-    return relations.sort((a, b) => b.concepts.length - a.concepts.length).slice(0, 12);
-  }, [knowledgePackages]);
+    return knowledgeGraph.nodes.filter((node) => node.type === "concept").map((node) => {
+      const explanationEdges = knowledgeGraph.edges.filter((edge) => edge.type === "explains" && edge.to === node.id);
+      const repositories = [...new Set(explanationEdges.map((edge) => {
+        const documentEdge = knowledgeGraph.edges.find((candidate) => candidate.type === "contains" && candidate.to === edge.from);
+        const projectEdge = knowledgeGraph.edges.find((candidate) => candidate.type === "contains" && candidate.to === documentEdge?.from && candidate.from.startsWith("project:"));
+        return knowledgeGraph.nodes.find((candidate) => candidate.id === projectEdge?.from)?.label;
+      }).filter((value): value is string => Boolean(value)))];
+      return { name: node.label, plain: node.plain || "来自原文的核心概念。", repositories, evidence: explanationEdges[0]?.evidence.excerpt || "" };
+    }).sort((a, b) => b.repositories.length - a.repositories.length || a.name.localeCompare(b.name));
+  }, [knowledgeGraph]);
+  const packageRelations = crossGraphRelations;
   const evidenceResult = {
     evidence: { label: "直接证据", verdict: "选择偏强：日志能证明出现了 Read 工具调用，但不能单独证明全部内部架构。", confidence: "高可信地描述本次行为，低可信地外推所有场景。" },
     inference: { label: "合理推断", verdict: "判断正确：现有记录支持这个解释，但“内部一定如此实现”仍需要更多场景或源码证据。", confidence: "保留边界，继续用不同任务的日志交叉验证。" },
@@ -927,18 +993,24 @@ export default function Home() {
     }
   }, [repoUrl]);
 
-  async function generateLearningPackage(url: string) {
+  async function generateLearningPackage(
+    url: string,
+    options: { navigate?: boolean; quiet?: boolean; force?: boolean } = {},
+  ) {
+    const { navigate = true, quiet = false, force = false } = options;
     if (!url || !libraryId) {
-      setImportMessage("请粘贴一个完整的 GitHub 仓库链接");
+      if (!quiet) setImportMessage("请粘贴一个完整的 GitHub 仓库链接");
       return;
     }
-    setImporting(true);
-    setImportMessage("");
+    if (!quiet) {
+      setImporting(true);
+      setImportMessage("");
+    }
     try {
       const response = await fetch("/api/repository", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url, libraryId }),
+        body: JSON.stringify({ url, libraryId, force }),
       });
       const result = (await response.json()) as { package?: RepositoryLearningPackage; error?: string; cacheStatus?: string; storage?: "cloud" | "device" };
       if (!response.ok || !result.package) throw new Error(result.error || "学习包生成失败");
@@ -947,15 +1019,18 @@ export default function Home() {
       const next: LibraryPackage = { ...learningPackage, changeSummary: compareLearningPackages(previous, learningPackage) };
       updateKnowledgePackages((current) => [next, ...current.filter((item) => item.id !== next.id)]);
       setLibraryStorage(result.storage || "device");
-      setBeginnerTrackId(`repo:${learningPackage.id}`);
-      setRepoUrl(learningPackage.url);
-      setImportMessage(`已生成 ${learningPackage.fullName} 的学习包：${learningPackage.sections.length} 个章节、${learningPackage.concepts.length} 个概念。`);
-      setView("beginner");
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      if (!quiet) setImportMessage(`已生成 ${learningPackage.fullName} 的学习包：${learningPackage.sections.length} 个章节、${learningPackage.concepts.length} 个概念。`);
+      if (navigate) {
+        setBeginnerTrackId(`repo:${learningPackage.id}`);
+        setRepoUrl(learningPackage.url);
+        setView("beginner");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+      return next;
     } catch (error) {
-      setImportMessage(error instanceof Error ? error.message : "生成学习包失败，请稍后再试");
+      if (!quiet) setImportMessage(error instanceof Error ? error.message : "生成学习包失败，请稍后再试");
     } finally {
-      setImporting(false);
+      if (!quiet) setImporting(false);
     }
   }
 
@@ -998,6 +1073,26 @@ export default function Home() {
     setSyncingLibrary(false);
     setImportMessage(`已检查 ${knowledgePackages.length} 个仓库的最新版本。`);
   }
+
+  useEffect(() => {
+    if (libraryLoading || !libraryId || !knowledgePackages.length || dailyCheckRunning.current) return;
+    const lastCheckedAt = Number(window.localStorage.getItem("starmate-last-library-check") || 0);
+    if (Date.now() - lastCheckedAt < 24 * 60 * 60 * 1000) return;
+    dailyCheckRunning.current = true;
+    let cancelled = false;
+    async function checkSavedPackages() {
+      for (const learningPackage of knowledgePackages.slice(0, 20)) {
+        await refreshLearningPackage(learningPackage, true);
+      }
+      window.localStorage.setItem("starmate-last-library-check", String(Date.now()));
+      dailyCheckRunning.current = false;
+      if (!cancelled) setImportMessage(`已自动检查 ${Math.min(20, knowledgePackages.length)} 个仓库的作者更新。`);
+    }
+    void checkSavedPackages();
+    return () => { cancelled = true; };
+    // refreshLearningPackage intentionally uses the package snapshot from this daily queue.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [libraryId, libraryLoading, knowledgePackages]);
 
   async function removeLearningPackage(learningPackage: LibraryPackage) {
     if (!libraryId) return;
@@ -1094,12 +1189,22 @@ export default function Home() {
     }
   }
 
-  function toggleSavedRepo(repoId: number) {
-    setSavedRepoIds((current) => {
-      const next = current.includes(repoId) ? current.filter((id) => id !== repoId) : [...current, repoId];
-      window.localStorage.setItem("starmate-saved-repos", JSON.stringify(next));
-      return next;
-    });
+  async function toggleSavedRepo(repo: StarredRepo) {
+    const removing = savedRepoIds.includes(repo.id);
+    const next = removing
+      ? savedRepoIds.filter((id) => id !== repo.id)
+      : [...savedRepoIds, repo.id];
+    setSavedRepoIds(next);
+    window.localStorage.setItem("starmate-saved-repos", JSON.stringify(next));
+    if (removing) {
+      setStarMessage(`已从伴读列表移除 ${repo.full_name}；已生成的学习包仍保留在知识收件箱。`);
+      return;
+    }
+    setStarMessage(`正在为 ${repo.full_name} 生成专属大纲、入门任务和知识关系…`);
+    const learningPackage = await generateLearningPackage(repo.html_url, { navigate: false, quiet: true });
+    setStarMessage(learningPackage
+      ? `已加入 ${repo.full_name}，并生成 ${learningPackage.sections.length} 个真实章节。`
+      : `${repo.full_name} 已加入列表，但学习包暂时生成失败，可以稍后重试。`);
   }
 
   function openLesson(id: number) {
@@ -1336,7 +1441,7 @@ export default function Home() {
 
           <section className="living-knowledge-base">
             <div className="knowledge-inbox-heading"><div><p className="overline">阶段 3 · 不断生长的知识库</p><h2>仓库越多，共同概念和文档关系越清楚</h2><p>关系来自文章实际出现的概念与技术标签；每条关系都会说明因为什么相连。</p></div><button onClick={() => { setOverviewMode("graph"); setView("overview"); }}>打开完整知识图谱 →</button></div>
-            {knowledgePackages.length ? <div className="living-knowledge-grid"><div><span>{libraryStorage === "cloud" ? "已保存到云端" : "已保存到当前设备"}</span><strong>{knowledgePackages.length}</strong><small>个仓库学习包</small></div><div><span>已识别</span><strong>{conceptGroups.length}</strong><small>个可解释概念</small></div><div><span>已建立</span><strong>{packageRelations.length}</strong><small>条跨仓库关系</small></div><aside>{conceptGroups.slice(0, 6).map((concept) => <span key={concept.name}>{concept.name}<b>{concept.repositories.length}</b></span>)}</aside></div> : <div className="knowledge-empty"><span>◎</span><div><strong>加入两个以上仓库后，关系会自动出现</strong><p>相同概念会合并，不同仓库会根据解释、实现或证据角色建立关系。</p></div></div>}
+            {knowledgePackages.length ? <div className="living-knowledge-grid"><div><span>{libraryStorage === "cloud" ? "已保存到云端" : "已保存到当前设备"}</span><strong>{knowledgePackages.length}</strong><small>个仓库学习包</small></div><div><span>已识别</span><strong>{conceptGroups.length}</strong><small>个可解释概念</small></div><div><span>已建立</span><strong>{packageRelations.length}</strong><small>条跨仓库关系</small></div><aside>{conceptGroups.slice(0, 6).map((concept) => <span key={concept.name}>{concept.name}<b>{concept.repositories.length}</b></span>)}</aside></div> : <div className="knowledge-empty"><span>◎</span><div><strong>加入第一篇仓库后，单篇图谱会立即生成</strong><p>它会先显示文档、章节与概念；继续加入相关文章后再形成跨文档关系。</p></div></div>}
           </section>
 
           <section className="extension-download">
@@ -1378,7 +1483,7 @@ export default function Home() {
                         <div className="repo-card-actions">
                           <a href={repo.html_url} target="_blank" rel="noreferrer">查看原文 ↗</a>
                           <button onClick={() => loadRepoOutline(repo)}>{outlineLoading === repo.id ? "拆解中…" : repoOutlines[repo.id] ? "收起大纲" : "拆解大纲"}</button>
-                          <button className={saved ? "saved" : ""} onClick={() => toggleSavedRepo(repo.id)}>{saved ? "✓ 已加入" : "+ 加入伴读"}</button>
+                          <button className={saved ? "saved" : ""} onClick={() => void toggleSavedRepo(repo)}>{saved ? "✓ 已加入" : "+ 加入伴读"}</button>
                         </div>
                         {repoOutlines[repo.id]?.length > 0 && <ol className="repo-outline">{repoOutlines[repo.id].map((heading, index) => <li key={`${heading}-${index}`}><span>{String(index + 1).padStart(2, "0")}</span>{heading}</li>)}</ol>}
                       </article>
@@ -1584,14 +1689,28 @@ export default function Home() {
             <section className="mode-panel graph-panel">
               <div className="mode-heading"><div><p className="overline">可解释知识图谱</p><h2>每条关系都说明“为什么相连”</h2></div><p>黄色是文档，紫色是概念；中间标签是关系类型。下面先展示文档之间的关系，再展示文档与概念的关系。</p></div>
               <div className="graph-legend"><span className="legend-document">文档</span><span className="legend-concept">概念</span><span className="legend-relation">关系说明</span></div>
-              <h3 className="graph-subtitle">文档之间</h3>
+              <h3 className="graph-subtitle">当前文档内部</h3>
+              <div className="graph-document-list">
+                {graphDocumentDetails.length ? graphDocumentDetails.map((document) => (
+                  <article className="graph-document-card" key={document.id}>
+                    <header><div><span>{document.projectLabel}</span><strong>{document.label}</strong></div><a href={document.evidenceUrl} target="_blank" rel="noreferrer">查看原文证据 ↗</a></header>
+                    <div className="graph-section-list">
+                      {document.sections.slice(0, 8).map((section) => (
+                        <section key={section.id}>
+                          <strong>{section.label}</strong>
+                          <div>{section.concepts.slice(0, 4).map((concept) => <b key={concept.id}>{concept.label}</b>)}</div>
+                          <a href={section.evidenceUrl} target="_blank" rel="noreferrer">定位这一节 ↗</a>
+                        </section>
+                      ))}
+                    </div>
+                  </article>
+                )) : <div className="growing-empty"><span>✦</span><div><strong>加入第一篇文章后，单篇图谱会立刻出现</strong><p>它会先连接项目、文档、章节和概念，不需要等待第二篇资料。</p></div></div>}
+              </div>
+              <h3 className="graph-subtitle">跨文档关系</h3>
               <div className="relation-list">
-                {knowledgePackages.length >= 2 ? packageRelations.length ? packageRelations.map((relation) => <div className="relation-row" key={`${relation.from}-${relation.to}`}><strong>{relation.from}</strong><span>共同概念 · {relation.concepts.slice(0, 2).join(" / ")}</span><strong>{relation.to}</strong><p>两篇原文都出现并解释了 {relation.concepts.join("、")}，适合放在同一主题下对照阅读；点击文档可以继续查看各自证据。</p></div>) : <div className="growing-empty"><span>◎</span><div><strong>已有多个仓库，但暂未发现可靠共同概念</strong><p>系统不会为了让图谱热闹而强行连线；加入更多相关资料后会重新计算。</p></div></div> : graphRepos.length >= 2 ? graphRepos.slice(0, -1).map((repo, index) => { const next = graphRepos[index + 1]; const shared = (repo.topics || []).find((topic) => (next.topics || []).includes(topic)); return <div className="relation-row" key={`${repo.id}-${next.id}`}><strong>{repo.full_name}</strong><span>{shared ? `共同主题 · ${shared}` : repo.language && repo.language === next.language ? `同为 ${repo.language}` : "学习互补"}</span><strong>{next.full_name}</strong><p>{shared ? `它们都覆盖 ${shared}，适合放在同一条主题路线中对照阅读。` : "系统根据仓库主题、语言和简介形成临时关系；加入更多收藏后会继续调整。"}</p></div>; }) : <div className="growing-empty"><span>✦</span><div><strong>加入至少两个仓库后，这里会生成真实关系</strong><p>关系来自原文出现的概念、仓库主题与技术标签，不再预先写死连线。</p></div></div>}
+                {packageRelations.length ? packageRelations.map((relation) => <div className="relation-row" key={`${relation.from}-${relation.to}-${relation.concept}`}><strong>{relation.from}</strong><span>共同概念 · {relation.concept}</span><strong>{relation.to}</strong><p>两篇原文都解释了“{relation.concept}”，因此可以放在同一主题下对照阅读。</p><div className="relation-evidence"><a href={relation.evidenceUrl} target="_blank" rel="noreferrer">证据一 ↗</a>{relation.relatedUrl && <a href={relation.relatedUrl} target="_blank" rel="noreferrer">证据二 ↗</a>}</div></div>) : <div className="growing-empty"><span>◎</span><div><strong>{graphDocumentDetails.length ? "当前先展示单篇内部关系" : "还没有可计算的动态关系"}</strong><p>加入更多相关文章后，只有确实共享同一概念的文档才会连接，不会为了热闹强行连线。</p></div></div>}
               </div>
-              <h3 className="graph-subtitle">文档与核心概念</h3>
-              <div className="concept-relation-grid">
-                {knowledgePackages.length ? knowledgePackages.map((learningPackage) => <div className="concept-relation" key={learningPackage.id}><strong>{learningPackage.fullName}</strong><span>{learningPackage.kindLabel} · 动态提取</span><div>{learningPackage.concepts.slice(0, 6).map((concept) => <b key={concept.name}>{concept.name}</b>)}</div><p>{learningPackage.summary}</p><button onClick={() => openDocument(learningPackage.fullName)}>查看原文证据 →</button></div>) : graphRepos.length ? graphRepos.map((repo) => <div className="concept-relation" key={repo.id}><strong>{repo.full_name}</strong><span>我的收藏</span><div>{[repo.language || "其他技术", ...(repo.topics || []).slice(0, 3)].map((concept) => <b key={concept}>{concept}</b>)}</div><p>{repo.description || "等待从 README 提取更详细的概念。"}</p></div>) : sourceDocuments.map((document) => <div className="concept-relation starter" key={document.name}><strong>{document.name}</strong><span>内置示范</span><div>{document.concepts.map((concept) => <b key={concept}>{concept}</b>)}</div><p>{document.summary}</p></div>)}
-              </div>
+              {knowledgeGraph.changes.length > 0 && <section className="graph-update-timeline"><div className="mode-heading"><div><p className="overline">作者更新推动图谱变化</p><h2>最近的章节变化</h2></div><p>新增、修改和删除会重新计算章节节点与概念关系。</p></div>{knowledgeGraph.changes.slice(0, 10).map((change) => <article key={`${change.packageId}-${change.sourceSha}`}><div><strong>{change.fullName}</strong><small>{new Date(change.sourceUpdatedAt).toLocaleDateString("zh-CN")} · {change.sourceSha.slice(0, 8)}</small></div><p>新增 {change.added.length} · 修改 {change.changed.length} · 删除 {change.removed.length}</p><div>{change.added.slice(0, 3).map((item) => <span className="added" key={`a-${item}`}>＋ {item}</span>)}{change.changed.slice(0, 3).map((item) => <span className="changed" key={`c-${item}`}>△ {item}</span>)}{change.removed.slice(0, 3).map((item) => <span className="removed" key={`r-${item}`}>－ {item}</span>)}</div><a href={change.evidence.url} target="_blank" rel="noreferrer">查看仓库原文 ↗</a></article>)}</section>}
               {conceptGroups.length > 0 && <section className="concept-dictionary"><div className="mode-heading"><div><p className="overline">合并后的概念词典</p><h2>同一个概念，只保留一个入口</h2></div><p>概念会记录出现在哪些仓库，避免知识库随着收藏增长而产生大量重复卡片。</p></div><div>{conceptGroups.slice(0, 16).map((concept) => <article key={concept.name}><span>{concept.repositories.length} 个仓库</span><strong>{concept.name}</strong><p>{concept.plain}</p><small>{concept.repositories.slice(0, 3).join(" · ")}</small></article>)}</div></section>}
             </section>
           )}
