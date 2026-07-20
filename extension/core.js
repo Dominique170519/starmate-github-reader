@@ -281,6 +281,88 @@
     return { nodes, edges };
   }
 
+  function mergeGraphs(left = { nodes: [], edges: [] }, right = { nodes: [], edges: [] }) {
+    const nodes = [];
+    const seenNodes = new Set();
+    for (const node of [...(left.nodes || []), ...(right.nodes || [])]) {
+      const canonicalId = node.type === "concept"
+        ? `concept:${normalizeConcept(node.label || node.id.replace(/^concept:/, ""))}`
+        : node.id;
+      if (seenNodes.has(canonicalId)) continue;
+      seenNodes.add(canonicalId);
+      nodes.push(canonicalId === node.id ? node : { ...node, id: canonicalId });
+    }
+    const edges = [];
+    const seenEdges = new Set();
+    for (const edge of [...(left.edges || []), ...(right.edges || [])]) {
+      const key = `${edge.from}|${edge.type}|${edge.to}|${edge.evidence?.url || ""}`;
+      if (seenEdges.has(key)) continue;
+      seenEdges.add(key);
+      edges.push(edge);
+    }
+    return { nodes, edges };
+  }
+
+  function linkSharedConcepts(graph) {
+    const edges = (graph.edges || []).filter((edge) => edge.type !== "shared-concept");
+    const documentBySection = new Map(
+      edges
+        .filter((edge) => edge.type === "contains" && edge.from.startsWith("document:") && edge.to.startsWith("section:"))
+        .map((edge) => [edge.to, edge.from]),
+    );
+    const appearances = new Map();
+    for (const edge of edges.filter((item) => item.type === "explains")) {
+      const documentId = documentBySection.get(edge.from);
+      if (!documentId) continue;
+      const items = appearances.get(edge.to) || [];
+      if (!items.some((item) => item.documentId === documentId)) {
+        items.push({ documentId, evidence: edge.evidence });
+      }
+      appearances.set(edge.to, items);
+    }
+    for (const [conceptId, items] of appearances) {
+      for (let leftIndex = 0; leftIndex < items.length; leftIndex += 1) {
+        for (let rightIndex = leftIndex + 1; rightIndex < items.length; rightIndex += 1) {
+          edges.push({
+            from: items[leftIndex].documentId,
+            to: items[rightIndex].documentId,
+            type: "shared-concept",
+            conceptId,
+            evidence: {
+              url: items[leftIndex].evidence?.url || items[rightIndex].evidence?.url,
+              relatedUrl: items[rightIndex].evidence?.url || items[leftIndex].evidence?.url,
+            },
+          });
+        }
+      }
+    }
+    return { nodes: graph.nodes || [], edges };
+  }
+
+  function applyGraphDiff(graph, snapshot, diff, terms = []) {
+    const changedSectionIds = new Set([...(diff.added || []), ...(diff.changed || [])]);
+    const changedNodeIds = new Set(
+      [...changedSectionIds].map((id) => `section:${snapshot.documentId}:${id}`),
+    );
+    const removedNodeIds = new Set(
+      (diff.removed || []).map((id) => `section:${snapshot.documentId}:${id}`),
+    );
+    const nodes = (graph.nodes || [])
+      .filter((node) => !changedNodeIds.has(node.id))
+      .map((node) => removedNodeIds.has(node.id) ? { ...node, archived: true } : node);
+    const edges = (graph.edges || []).filter(
+      (edge) => !changedNodeIds.has(edge.from) && !changedNodeIds.has(edge.to),
+    );
+    const changedSnapshot = {
+      ...snapshot,
+      sections: (snapshot.sections || []).filter((section) => changedSectionIds.has(section.id)),
+    };
+    const changedTerms = terms.filter((term) => changedSectionIds.has(term.sectionId));
+    return linkSharedConcepts(
+      mergeGraphs({ nodes, edges }, buildDocumentGraph(changedSnapshot, changedTerms)),
+    );
+  }
+
   globalThis.StarMateCore = {
     glossary,
     normalizeConcept,
@@ -291,5 +373,8 @@
     diffSnapshots,
     updateEventId,
     buildDocumentGraph,
+    mergeGraphs,
+    linkSharedConcepts,
+    applyGraphDiff,
   };
 })();

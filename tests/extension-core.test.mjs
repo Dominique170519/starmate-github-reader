@@ -93,3 +93,68 @@ test("uses commit and document as a stable update id", async () => {
     core.updateEventId("o/r:README", "def456"),
   );
 });
+
+test("keeps one concept node when two documents share an alias", async () => {
+  const core = await loadCore();
+  const merged = core.mergeGraphs(
+    { nodes: [{ id: "concept:api", type: "concept", label: "API" }], edges: [] },
+    {
+      nodes: [{ id: "concept:api", type: "concept", label: "APIs" }],
+      edges: [{
+        from: "document:b",
+        to: "concept:api",
+        type: "explains",
+        evidence: { url: "https://b" },
+      }],
+    },
+  );
+  assert.equal(merged.nodes.filter((node) => node.id === "concept:api").length, 1);
+  assert.equal(merged.edges.length, 1);
+});
+
+test("archives removed sections while preserving unaffected graph nodes", async () => {
+  const core = await loadCore();
+  const stableNode = { id: "concept:api", type: "concept", label: "API" };
+  const graph = {
+    nodes: [
+      stableNode,
+      { id: "section:o/r:README:old", type: "section", label: "Old" },
+    ],
+    edges: [],
+  };
+  const updated = core.applyGraphDiff(
+    graph,
+    {
+      projectId: "o/r",
+      documentId: "o/r:README",
+      url: "https://example",
+      sections: [],
+    },
+    { added: [], changed: [], removed: ["old"] },
+    [],
+  );
+  assert.equal(updated.nodes.find((node) => node.id.endsWith(":old")).archived, true);
+  assert.equal(updated.nodes.find((node) => node.id === "concept:api"), stableNode);
+});
+
+test("links two documents through a shared concept with evidence", async () => {
+  const core = await loadCore();
+  const graph = core.linkSharedConcepts({
+    nodes: [
+      { id: "document:a", type: "document", label: "a" },
+      { id: "document:b", type: "document", label: "b" },
+      { id: "section:a:intro", type: "section", label: "Intro" },
+      { id: "section:b:intro", type: "section", label: "Intro" },
+      { id: "concept:api", type: "concept", label: "API" },
+    ],
+    edges: [
+      { from: "document:a", to: "section:a:intro", type: "contains", evidence: { url: "https://a" } },
+      { from: "document:b", to: "section:b:intro", type: "contains", evidence: { url: "https://b" } },
+      { from: "section:a:intro", to: "concept:api", type: "explains", evidence: { url: "https://a" } },
+      { from: "section:b:intro", to: "concept:api", type: "explains", evidence: { url: "https://b" } },
+    ],
+  });
+  const shared = graph.edges.find((edge) => edge.type === "shared-concept");
+  assert.equal(Boolean(shared), true);
+  assert.equal(Boolean(shared.evidence.url), true);
+});

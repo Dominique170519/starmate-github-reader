@@ -67,6 +67,7 @@
   const tabItems = [
     ["本章", "chapter"],
     ["文章地图", "map"],
+    ["知识图谱", "graph"],
     ["作者更新", "updates"],
     ["原文搜索", "search"],
     ["我的笔记", "note"],
@@ -114,6 +115,21 @@
     outline.append(button);
   });
   mapView.append(mapHeading, outline);
+
+  const graphView = create("section", "starmate-view");
+  graphView.dataset.view = "graph";
+  const graphHeading = create("div", "starmate-view-heading");
+  graphHeading.append(create("span", "", "单篇也有图谱"), create("strong", "", "项目 → 文档 → 章节 → 概念"));
+  const miniGraph = create("div", "starmate-mini-graph");
+  miniGraph.append(create("p", "starmate-empty", "正在从当前原文生成关系…"));
+  const graphEvidence = create("div", "starmate-graph-evidence");
+  graphEvidence.hidden = true;
+  const graphEvidenceCopy = create("p");
+  const graphEvidenceLink = create("a", "starmate-evidence-link", "查看原文证据 ↗");
+  graphEvidenceLink.target = "_blank";
+  graphEvidenceLink.rel = "noopener";
+  graphEvidence.append(graphEvidenceCopy, graphEvidenceLink);
+  graphView.append(graphHeading, miniGraph, graphEvidence);
 
   const updatesView = create("section", "starmate-view");
   updatesView.dataset.view = "updates";
@@ -195,7 +211,7 @@
   termActions.append(understoodButton, reviewButton);
   termCard.append(termCardHeader, termPlain, termAnalogy, termRole, termActions);
 
-  body.append(chapterView, mapView, updatesView, searchView, noteView);
+  body.append(chapterView, mapView, graphView, updatesView, searchView, noteView);
   const footer = create("footer", "starmate-panel-footer");
   const addButton = create("button", "starmate-primary", "加入星伴读知识库 →");
   addButton.type = "button";
@@ -228,6 +244,7 @@
   let frame = 0;
   let activeTerm = "";
   let lastTermButton = null;
+  const termEvidence = [];
 
   function addUnique(items, value) {
     return [...new Set([...(items || []), value])];
@@ -274,6 +291,11 @@
           mark.dataset.starmateSection = sectionId;
           mark.addEventListener("click", () => showTermCard(mark, explanation, sourceText));
           matchNode.replaceWith(mark);
+          termEvidence.push({
+            term: explanation.term,
+            sectionId,
+            excerpt: sourceText.slice(0, 180),
+          });
           return true;
         }
       }
@@ -384,8 +406,10 @@
     const previous = await globalThis.StarMateStorage.getSnapshot(adapter.documentId);
     const commit = await latestCommit();
     const next = plainSnapshot(commit?.sha || previous?.pendingRemoteSha || previous?.remoteSha || "");
+    const diff = previous
+      ? globalThis.StarMateCore.diffSnapshots(previous, next)
+      : { added: next.sections.map((section) => section.id), changed: [], removed: [] };
     if (previous) {
-      const diff = globalThis.StarMateCore.diffSnapshots(previous, next);
       if (diff.added.length || diff.changed.length || diff.removed.length) {
         const removedTitles = Object.fromEntries(
           (previous.sections || []).filter((section) => diff.removed.includes(section.id)).map((section) => [section.id, section.title]),
@@ -409,9 +433,84 @@
         });
       }
     }
+    const currentGraph = await globalThis.StarMateStorage.getGraph();
+    const nextGraph = previous
+      ? globalThis.StarMateCore.applyGraphDiff(currentGraph, next, diff, termEvidence)
+      : globalThis.StarMateCore.linkSharedConcepts(
+        globalThis.StarMateCore.mergeGraphs(
+          currentGraph,
+          globalThis.StarMateCore.buildDocumentGraph(next, termEvidence),
+        ),
+      );
+    const savedGraph = await globalThis.StarMateStorage.saveGraph(
+      nextGraph,
+      adapter.documentId,
+      Date.now(),
+    );
+    renderMiniGraph(savedGraph);
     await globalThis.StarMateStorage.saveSnapshot(next);
     const events = await globalThis.StarMateStorage.listUpdateEvents(adapter.documentId);
     renderUpdateEvents(events, Boolean(previous));
+  }
+
+  function renderMiniGraph(graph) {
+    miniGraph.replaceChildren();
+    const projectNode = graph.nodes.find((node) => node.id === `project:${adapter.projectId}`);
+    const documentNode = graph.nodes.find((node) => node.id === `document:${adapter.documentId}`);
+    const sectionPrefix = `section:${adapter.documentId}:`;
+    const sectionNodes = graph.nodes
+      .filter((node) => node.id.startsWith(sectionPrefix) && !node.archived)
+      .slice(0, 6);
+    const sectionIds = new Set(sectionNodes.map((node) => node.id));
+    const conceptIds = new Set(
+      graph.edges
+        .filter((edge) => edge.type === "explains" && sectionIds.has(edge.from))
+        .map((edge) => edge.to),
+    );
+    const conceptNodes = graph.nodes.filter((node) => conceptIds.has(node.id)).slice(0, 8);
+
+    const projectRow = create("div", "starmate-graph-layer");
+    projectRow.append(create("span", "starmate-graph-node project", projectNode?.label || adapter.projectId));
+    const documentRow = create("div", "starmate-graph-layer");
+    documentRow.append(create("span", "starmate-graph-node document", documentNode?.label || adapter.documentPath));
+    const sectionRow = create("div", "starmate-graph-layer wrap");
+    for (const node of sectionNodes) {
+      const button = create("button", "starmate-graph-node section", node.label);
+      button.type = "button";
+      button.addEventListener("click", () => {
+        const id = node.id.slice(sectionPrefix.length);
+        const section = article.sections.find((item) => item.id === id);
+        if (section) scrollToSource(section.element);
+      });
+      sectionRow.append(button);
+    }
+    const conceptRow = create("div", "starmate-graph-layer wrap");
+    for (const node of conceptNodes) {
+      const button = create("button", "starmate-graph-node concept", node.label);
+      button.type = "button";
+      button.addEventListener("click", () => {
+        const evidence = graph.edges.find(
+          (edge) => edge.type === "explains" && edge.to === node.id && sectionIds.has(edge.from),
+        )?.evidence;
+        graphEvidenceCopy.textContent = evidence?.excerpt || `“${node.label}”来自当前文档的章节内容。`;
+        graphEvidenceLink.href = evidence?.url || article.url;
+        graphEvidence.hidden = false;
+      });
+      conceptRow.append(button);
+    }
+    miniGraph.append(projectRow, create("i", "starmate-graph-connector", "↓"), documentRow);
+    if (sectionNodes.length) miniGraph.append(create("i", "starmate-graph-connector", "↓ 章节"), sectionRow);
+    if (conceptNodes.length) miniGraph.append(create("i", "starmate-graph-connector", "↓ 解释"), conceptRow);
+    const sharedCount = graph.edges.filter(
+      (edge) => edge.type === "shared-concept"
+        && (edge.from === documentNode?.id || edge.to === documentNode?.id),
+    ).length;
+    if (sharedCount) {
+      miniGraph.append(create("p", "starmate-graph-shared", `还通过共同概念连接了 ${sharedCount} 篇已读文档。`));
+    }
+    if (!sectionNodes.length) {
+      miniGraph.append(create("p", "starmate-empty", "当前页面还没有可生成关系的章节。"));
+    }
   }
 
   function currentSection() {
