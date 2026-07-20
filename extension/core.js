@@ -87,7 +87,7 @@
     );
     return {
       percent,
-      remainingMinutes: Math.max(1, Math.ceil(Math.max(0, remainingCharacters) / 350)),
+      remainingMinutes: Math.ceil(Math.max(0, remainingCharacters) / 350),
     };
   }
 

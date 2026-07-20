@@ -45,3 +45,31 @@ test("builds an evidence-backed graph for one document", async () => {
   assert.equal(graph.nodes.some((node) => node.type === "concept"), true);
   assert.equal(graph.edges.every((edge) => edge.evidence?.url), true);
 });
+
+test("clamps progress and estimates remaining minutes", async () => {
+  const core = await loadCore();
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(core.calculateProgress({
+      scrollTop: 50,
+      articleTop: 100,
+      articleHeight: 2000,
+      viewportHeight: 800,
+      remainingCharacters: 700,
+    }))),
+    { percent: 0, remainingMinutes: 2 },
+  );
+  assert.equal(core.calculateProgress({
+    scrollTop: 5000,
+    articleTop: 0,
+    articleHeight: 1000,
+    viewportHeight: 500,
+    remainingCharacters: 0,
+  }).percent, 100);
+  assert.equal(core.calculateProgress({
+    scrollTop: 0,
+    articleTop: 0,
+    articleHeight: 1000,
+    viewportHeight: 500,
+    remainingCharacters: 0,
+  }).remainingMinutes, 0);
+});
