@@ -140,6 +140,19 @@ test("builds durable rule-based learning packages for arbitrary GitHub repositor
   assert.match(hosting, /"d1": "DB"/);
 });
 
+test("keeps repository learning usable on Vercel without Cloudflare D1", async () => {
+  const [page, route] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/repository/route.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(route, /process\.env\.VERCEL/);
+  assert.match(route, /storage: db \? "cloud" : "device"/);
+  assert.match(page, /DEVICE_LIBRARY_PREFIX/);
+  assert.match(page, /writeDeviceLibrary/);
+  assert.match(page, /已保存到当前设备/);
+});
+
 test("ships a no-model Chrome reading companion", async () => {
   const [page, manifest, content] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),

@@ -4,6 +4,8 @@ type D1Database = NonNullable<
   (typeof import("cloudflare:workers"))["env"]["DB"]
 >;
 
+type CloudflareWorkersModule = typeof import("cloudflare:workers");
+
 type GitHubRepository = {
   name: string;
   owner: { login: string };
@@ -80,30 +82,41 @@ async function githubJson<T>(url: string): Promise<T> {
 }
 
 async function ensureTables() {
-  // Load the Cloudflare binding only when this API is called. This keeps the
-  // page renderable in Node-based previews and tests.
-  const { env } = await import("cloudflare:workers");
-  const db = env.DB;
-  if (!db) throw Object.assign(new Error("知识库暂时没有连接到持久存储。"), { status: 503 });
-  await db.batch([
-    db.prepare(`CREATE TABLE IF NOT EXISTS repository_packages (
-      id TEXT PRIMARY KEY,
-      owner TEXT NOT NULL,
-      name TEXT NOT NULL,
-      source_sha TEXT NOT NULL,
-      package_json TEXT NOT NULL,
-      synced_at INTEGER NOT NULL,
-      updated_at TEXT NOT NULL
-    )`),
-    db.prepare(`CREATE TABLE IF NOT EXISTS library_repositories (
-      library_id TEXT NOT NULL,
-      repository_id TEXT NOT NULL,
-      added_at INTEGER NOT NULL,
-      PRIMARY KEY (library_id, repository_id)
-    )`),
-    db.prepare("CREATE INDEX IF NOT EXISTS library_repositories_library_idx ON library_repositories (library_id, added_at DESC)"),
-  ]);
-  return db;
+  // Vercel does not expose Cloudflare's D1 binding. In that environment the
+  // route still generates packages while the browser keeps the user's library.
+  if (process.env.VERCEL) return null;
+
+  try {
+    const specifier = "cloudflare:workers";
+    const { env } = await import(
+      /* webpackIgnore: true */
+      /* @vite-ignore */
+      specifier
+    ) as CloudflareWorkersModule;
+    const db = env.DB;
+    if (!db) return null;
+    await db.batch([
+      db.prepare(`CREATE TABLE IF NOT EXISTS repository_packages (
+        id TEXT PRIMARY KEY,
+        owner TEXT NOT NULL,
+        name TEXT NOT NULL,
+        source_sha TEXT NOT NULL,
+        package_json TEXT NOT NULL,
+        synced_at INTEGER NOT NULL,
+        updated_at TEXT NOT NULL
+      )`),
+      db.prepare(`CREATE TABLE IF NOT EXISTS library_repositories (
+        library_id TEXT NOT NULL,
+        repository_id TEXT NOT NULL,
+        added_at INTEGER NOT NULL,
+        PRIMARY KEY (library_id, repository_id)
+      )`),
+      db.prepare("CREATE INDEX IF NOT EXISTS library_repositories_library_idx ON library_repositories (library_id, added_at DESC)"),
+    ]);
+    return db;
+  } catch {
+    return null;
+  }
 }
 
 async function fetchRepositoryPackage(owner: string, repository: string) {
@@ -185,13 +198,14 @@ export async function GET(request: Request) {
     const libraryId = validLibraryId(new URL(request.url).searchParams.get("libraryId"));
     if (!libraryId) return Response.json({ error: "缺少有效的知识库标识。" }, { status: 400 });
     const db = await ensureTables();
+    if (!db) return Response.json({ packages: [], storage: "device" }, { headers: { "Cache-Control": "no-store" } });
     const result = await db.prepare(`SELECT p.package_json FROM repository_packages p
       JOIN library_repositories l ON l.repository_id = p.id
       WHERE l.library_id = ? ORDER BY l.added_at DESC LIMIT 80`).bind(libraryId).all<{ package_json: string }>();
     const packages = (result.results || []).flatMap((row) => {
       try { return [JSON.parse(row.package_json) as RepositoryLearningPackage]; } catch { return []; }
     });
-    return Response.json({ packages }, { headers: { "Cache-Control": "no-store" } });
+    return Response.json({ packages, storage: "cloud" }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const status = error && typeof error === "object" && "status" in error ? Number(error.status) : 500;
     return Response.json({ error: error instanceof Error ? error.message : "知识库读取失败。" }, { status });
@@ -209,19 +223,19 @@ export async function POST(request: Request) {
     const id = `${parsed.owner.toLowerCase()}/${parsed.repository.toLowerCase()}`;
 
     if (body.action === "remove") {
-      await db.prepare("DELETE FROM library_repositories WHERE library_id = ? AND repository_id = ?").bind(libraryId, id).run();
-      return Response.json({ removed: true, id });
+      if (db) await db.prepare("DELETE FROM library_repositories WHERE library_id = ? AND repository_id = ?").bind(libraryId, id).run();
+      return Response.json({ removed: true, id, storage: db ? "cloud" : "device" });
     }
 
-    const stored = await getStoredPackage(db, id);
+    const stored = db ? await getStoredPackage(db, id) : null;
     let learningPackage = stored?.package || null;
     let cacheStatus: "cached" | "refreshed" = "cached";
     if (!learningPackage || body.force || Date.now() - (stored?.syncedAt || 0) > CACHE_MS) {
       learningPackage = await fetchRepositoryPackage(parsed.owner, parsed.repository);
       cacheStatus = "refreshed";
     }
-    await savePackage(db, libraryId, learningPackage);
-    return Response.json({ package: learningPackage, cacheStatus }, { headers: { "Cache-Control": "no-store" } });
+    if (db) await savePackage(db, libraryId, learningPackage);
+    return Response.json({ package: learningPackage, cacheStatus, storage: db ? "cloud" : "device" }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const status = error && typeof error === "object" && "status" in error ? Number(error.status) : 500;
     return Response.json({ error: error instanceof Error ? error.message : "生成学习包失败，请稍后再试。" }, { status });

@@ -1,5 +1,5 @@
 (() => {
-  const APP_URL = "https://starmate-github-learning.noblest-spat-6gx6es5.chatgpt.site";
+  const APP_URL = "https://windy3f3f3f3f-how-claude-code-works.vercel.app";
   const ROOT_ID = "starmate-extension-root";
   let lastRepository = "";
 
@@ -152,4 +152,3 @@
     timer = window.setTimeout(mount, 500);
   }).observe(document.documentElement, { childList: true, subtree: true });
 })();
-

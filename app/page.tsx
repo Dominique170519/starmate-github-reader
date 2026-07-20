@@ -653,6 +653,25 @@ function createLibraryId() {
   return `library_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 18)}`;
 }
 
+const DEVICE_LIBRARY_PREFIX = "starmate-knowledge-packages:";
+
+function readDeviceLibrary(libraryId: string): LibraryPackage[] {
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(`${DEVICE_LIBRARY_PREFIX}${libraryId}`) || "[]");
+    return Array.isArray(saved) ? saved : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeDeviceLibrary(libraryId: string, packages: LibraryPackage[]) {
+  try {
+    window.localStorage.setItem(`${DEVICE_LIBRARY_PREFIX}${libraryId}`, JSON.stringify(packages.slice(0, 20)));
+  } catch {
+    // A full browser storage area should not interrupt reading or updating.
+  }
+}
+
 export default function Home() {
   const [view, setView] = useState<View>("home");
   const [repoUrl, setRepoUrl] = useState("");
@@ -663,6 +682,7 @@ export default function Home() {
   const [refreshingPackageId, setRefreshingPackageId] = useState<string | null>(null);
   const [syncingLibrary, setSyncingLibrary] = useState(false);
   const [libraryLoading, setLibraryLoading] = useState(true);
+  const [libraryStorage, setLibraryStorage] = useState<"checking" | "cloud" | "device">("checking");
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
   const [lessonComplete, setLessonComplete] = useState(false);
   const [cardIndex, setCardIndex] = useState(0);
@@ -721,13 +741,22 @@ export default function Home() {
   useEffect(() => {
     if (!libraryId) return;
     let cancelled = false;
+    const devicePackages = readDeviceLibrary(libraryId);
+    /* eslint-disable-next-line react-hooks/set-state-in-effect -- restore this device's repository library before checking cloud storage */
+    setKnowledgePackages(devicePackages);
     fetch(`/api/repository?libraryId=${encodeURIComponent(libraryId)}`, { cache: "no-store" })
       .then(async (response) => {
-        const result = (await response.json()) as { packages?: RepositoryLearningPackage[]; error?: string };
+        const result = (await response.json()) as { packages?: RepositoryLearningPackage[]; error?: string; storage?: "cloud" | "device" };
         if (!response.ok) throw new Error(result.error || "知识库读取失败");
-        if (!cancelled) setKnowledgePackages(result.packages || []);
+        if (!cancelled) {
+          const cloudPackages = result.packages || [];
+          const merged = [...cloudPackages, ...devicePackages.filter((item) => !cloudPackages.some((cloud) => cloud.id === item.id))];
+          setKnowledgePackages(merged);
+          setLibraryStorage(result.storage || "device");
+          writeDeviceLibrary(libraryId, merged);
+        }
       })
-      .catch(() => { /* New or offline libraries begin empty and can retry when adding a repository. */ })
+      .catch(() => { if (!cancelled) setLibraryStorage("device"); })
       .finally(() => { if (!cancelled) setLibraryLoading(false); });
     return () => { cancelled = true; };
   }, [libraryId]);
@@ -911,12 +940,13 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url, libraryId }),
       });
-      const result = (await response.json()) as { package?: RepositoryLearningPackage; error?: string; cacheStatus?: string };
+      const result = (await response.json()) as { package?: RepositoryLearningPackage; error?: string; cacheStatus?: string; storage?: "cloud" | "device" };
       if (!response.ok || !result.package) throw new Error(result.error || "学习包生成失败");
       const learningPackage = result.package;
       const previous = knowledgePackages.find((item) => item.id === learningPackage.id);
       const next: LibraryPackage = { ...learningPackage, changeSummary: compareLearningPackages(previous, learningPackage) };
-      setKnowledgePackages((current) => [next, ...current.filter((item) => item.id !== next.id)]);
+      updateKnowledgePackages((current) => [next, ...current.filter((item) => item.id !== next.id)]);
+      setLibraryStorage(result.storage || "device");
       setBeginnerTrackId(`repo:${learningPackage.id}`);
       setRepoUrl(learningPackage.url);
       setImportMessage(`已生成 ${learningPackage.fullName} 的学习包：${learningPackage.sections.length} 个章节、${learningPackage.concepts.length} 个概念。`);
@@ -947,10 +977,11 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: learningPackage.url, libraryId, force: true }),
       });
-      const result = (await response.json()) as { package?: RepositoryLearningPackage; error?: string };
+      const result = (await response.json()) as { package?: RepositoryLearningPackage; error?: string; storage?: "cloud" | "device" };
       if (!response.ok || !result.package) throw new Error(result.error || "更新检查失败");
       const next: LibraryPackage = { ...result.package, changeSummary: compareLearningPackages(learningPackage, result.package) };
-      setKnowledgePackages((current) => current.map((item) => item.id === next.id ? next : item));
+      updateKnowledgePackages((current) => current.map((item) => item.id === next.id ? next : item));
+      setLibraryStorage(result.storage || "device");
       if (!quiet) setImportMessage(next.changeSummary?.status === "unchanged" ? `${next.fullName} 暂无原文变化。` : `${next.fullName} 已更新，并生成了章节变化记录。`);
     } catch (error) {
       if (!quiet) setImportMessage(error instanceof Error ? error.message : "更新检查失败");
@@ -971,16 +1002,25 @@ export default function Home() {
   async function removeLearningPackage(learningPackage: LibraryPackage) {
     if (!libraryId) return;
     try {
-      await fetch("/api/repository", {
+      const response = await fetch("/api/repository", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: learningPackage.url, libraryId, action: "remove" }),
       });
-      setKnowledgePackages((current) => current.filter((item) => item.id !== learningPackage.id));
+      if (!response.ok) throw new Error();
+      updateKnowledgePackages((current) => current.filter((item) => item.id !== learningPackage.id));
       if (activeDocumentName === learningPackage.fullName) setActiveDocumentName(sourceDocuments[0].name);
     } catch {
       setImportMessage("暂时无法从知识库移除，请稍后再试。");
     }
+  }
+
+  function updateKnowledgePackages(updater: (current: LibraryPackage[]) => LibraryPackage[]) {
+    setKnowledgePackages((current) => {
+      const next = updater(current);
+      if (libraryId) writeDeviceLibrary(libraryId, next);
+      return next;
+    });
   }
 
   function finishLesson() {
@@ -1296,7 +1336,7 @@ export default function Home() {
 
           <section className="living-knowledge-base">
             <div className="knowledge-inbox-heading"><div><p className="overline">阶段 3 · 不断生长的知识库</p><h2>仓库越多，共同概念和文档关系越清楚</h2><p>关系来自文章实际出现的概念与技术标签；每条关系都会说明因为什么相连。</p></div><button onClick={() => { setOverviewMode("graph"); setView("overview"); }}>打开完整知识图谱 →</button></div>
-            {knowledgePackages.length ? <div className="living-knowledge-grid"><div><span>已持久保存</span><strong>{knowledgePackages.length}</strong><small>个仓库学习包</small></div><div><span>已识别</span><strong>{conceptGroups.length}</strong><small>个可解释概念</small></div><div><span>已建立</span><strong>{packageRelations.length}</strong><small>条跨仓库关系</small></div><aside>{conceptGroups.slice(0, 6).map((concept) => <span key={concept.name}>{concept.name}<b>{concept.repositories.length}</b></span>)}</aside></div> : <div className="knowledge-empty"><span>◎</span><div><strong>加入两个以上仓库后，关系会自动出现</strong><p>相同概念会合并，不同仓库会根据解释、实现或证据角色建立关系。</p></div></div>}
+            {knowledgePackages.length ? <div className="living-knowledge-grid"><div><span>{libraryStorage === "cloud" ? "已保存到云端" : "已保存到当前设备"}</span><strong>{knowledgePackages.length}</strong><small>个仓库学习包</small></div><div><span>已识别</span><strong>{conceptGroups.length}</strong><small>个可解释概念</small></div><div><span>已建立</span><strong>{packageRelations.length}</strong><small>条跨仓库关系</small></div><aside>{conceptGroups.slice(0, 6).map((concept) => <span key={concept.name}>{concept.name}<b>{concept.repositories.length}</b></span>)}</aside></div> : <div className="knowledge-empty"><span>◎</span><div><strong>加入两个以上仓库后，关系会自动出现</strong><p>相同概念会合并，不同仓库会根据解释、实现或证据角色建立关系。</p></div></div>}
           </section>
 
           <section className="extension-download">
