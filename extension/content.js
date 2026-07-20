@@ -67,6 +67,7 @@
   const tabItems = [
     ["本章", "chapter"],
     ["文章地图", "map"],
+    ["作者更新", "updates"],
     ["原文搜索", "search"],
     ["我的笔记", "note"],
   ].map(([label, id], index) => {
@@ -113,6 +114,14 @@
     outline.append(button);
   });
   mapView.append(mapHeading, outline);
+
+  const updatesView = create("section", "starmate-view");
+  updatesView.dataset.view = "updates";
+  const updatesHeading = create("div", "starmate-view-heading");
+  updatesHeading.append(create("span", "", "作者更新明细"), create("strong", "", "只显示有原文证据的变化"));
+  const updatesTimeline = create("div", "starmate-update-timeline");
+  updatesTimeline.append(create("p", "starmate-empty", "正在读取当前版本…"));
+  updatesView.append(updatesHeading, updatesTimeline);
 
   const searchView = create("section", "starmate-view");
   searchView.dataset.view = "search";
@@ -186,7 +195,7 @@
   termActions.append(understoodButton, reviewButton);
   termCard.append(termCardHeader, termPlain, termAnalogy, termRole, termActions);
 
-  body.append(chapterView, mapView, searchView, noteView);
+  body.append(chapterView, mapView, updatesView, searchView, noteView);
   const footer = create("footer", "starmate-panel-footer");
   const addButton = create("button", "starmate-primary", "加入星伴读知识库 →");
   addButton.type = "button";
@@ -283,6 +292,126 @@
         }
       }
     }
+  }
+
+  function plainSnapshot(remoteSha = "") {
+    return {
+      projectId: article.projectId,
+      documentId: article.documentId,
+      documentPath: article.documentPath,
+      url: article.url,
+      owner: adapter.owner,
+      repository: adapter.repository,
+      remoteSha,
+      lastReadAt: Date.now(),
+      sections: article.sections.map((section) => ({
+        id: section.id,
+        title: section.title,
+        url: section.url,
+        fingerprint: section.fingerprint,
+      })),
+    };
+  }
+
+  async function latestCommit() {
+    const cacheKey = `commit:${adapter.projectId}:${adapter.documentPath}`;
+    const cached = await globalThis.StarMateStorage.get(cacheKey, null);
+    if (cached?.cachedAt > Date.now() - 6 * 60 * 60 * 1000) return cached.value;
+    const query = new URLSearchParams({ path: adapter.documentPath, per_page: "1" });
+    try {
+      const response = await fetch(
+        `https://api.github.com/repos/${adapter.owner}/${adapter.repository}/commits?${query}`,
+        { headers: { Accept: "application/vnd.github+json" } },
+      );
+      if (!response.ok) return null;
+      const [item] = await response.json();
+      if (!item) return null;
+      const value = {
+        sha: item.sha,
+        author: item.author?.login || item.commit?.author?.name || "GitHub 作者",
+        committedAt: item.commit?.author?.date || "",
+        message: item.commit?.message?.split("\n")[0] || "更新文档",
+        commitUrl: item.html_url || "",
+      };
+      await globalThis.StarMateStorage.set(cacheKey, { cachedAt: Date.now(), value });
+      return value;
+    } catch {
+      return null;
+    }
+  }
+
+  function renderUpdateEvents(events, hasSnapshot) {
+    updatesTimeline.replaceChildren();
+    if (!events.length) {
+      updatesTimeline.append(create(
+        "p",
+        "starmate-empty",
+        hasSnapshot ? "当前没有检测到章节变化。" : "已记录当前版本；从现在开始追踪作者更新。",
+      ));
+      return;
+    }
+    for (const event of events.slice(0, 12)) {
+      const card = create("article", "starmate-update-card");
+      const summary = create("strong", "", `新增 ${event.added.length} · 修改 ${event.changed.length} · 删除 ${event.removed.length}`);
+      const meta = create("small", "", `${event.author || "GitHub 作者"} · ${event.committedAt ? new Date(event.committedAt).toLocaleDateString("zh-CN") : "最近检查"}`);
+      const message = create("p", "", event.message || "文档内容发生变化");
+      const sections = create("div", "starmate-update-sections");
+      for (const id of [...event.added, ...event.changed]) {
+        const section = article.sections.find((item) => item.id === id);
+        const button = create("button", "", section?.title || id);
+        button.type = "button";
+        button.addEventListener("click", () => {
+          if (section) scrollToSource(section.element);
+        });
+        sections.append(button);
+      }
+      for (const id of event.removed) {
+        sections.append(create("span", "", `${event.removedTitles?.[id] || id} · 已归档`));
+      }
+      card.append(summary, meta, message, sections);
+      if (event.commitUrl) {
+        const link = create("a", "starmate-evidence-link", "查看这次提交 ↗");
+        link.href = event.commitUrl;
+        link.target = "_blank";
+        link.rel = "noopener";
+        card.append(link);
+      }
+      updatesTimeline.append(card);
+    }
+  }
+
+  async function compareAndSaveSnapshot() {
+    const previous = await globalThis.StarMateStorage.getSnapshot(adapter.documentId);
+    const commit = await latestCommit();
+    const next = plainSnapshot(commit?.sha || previous?.pendingRemoteSha || previous?.remoteSha || "");
+    if (previous) {
+      const diff = globalThis.StarMateCore.diffSnapshots(previous, next);
+      if (diff.added.length || diff.changed.length || diff.removed.length) {
+        const removedTitles = Object.fromEntries(
+          (previous.sections || []).filter((section) => diff.removed.includes(section.id)).map((section) => [section.id, section.title]),
+        );
+        await globalThis.StarMateStorage.saveUpdateEvent({
+          id: globalThis.StarMateCore.updateEventId(
+            adapter.documentId,
+            commit?.sha || globalThis.StarMateCore.fingerprint(JSON.stringify(next.sections)),
+          ),
+          documentId: adapter.documentId,
+          commitSha: commit?.sha || "",
+          checkedAt: Date.now(),
+          added: diff.added,
+          changed: diff.changed,
+          removed: diff.removed,
+          removedTitles,
+          author: commit?.author || "",
+          committedAt: commit?.committedAt || "",
+          message: commit?.message || "检测到文档章节变化",
+          commitUrl: commit?.commitUrl || "",
+        });
+      }
+    }
+    await globalThis.StarMateStorage.saveSnapshot(next);
+    const events = await globalThis.StarMateStorage.listUpdateEvents(adapter.documentId);
+    renderUpdateEvents(events, Boolean(previous));
   }
 
   function currentSection() {
@@ -385,5 +514,6 @@
     state = { ...state, ...saved };
     renderProgress(state.completed);
     annotateTerms();
+    compareAndSaveSnapshot();
   });
 })();

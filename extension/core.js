@@ -232,6 +232,10 @@
     };
   }
 
+  function updateEventId(documentId, commitSha) {
+    return `update:${fingerprint(`${documentId}:${commitSha}`)}`;
+  }
+
   function buildDocumentGraph(snapshot, terms = []) {
     const projectId = `project:${snapshot.projectId}`;
     const documentId = `document:${snapshot.documentId}`;
@@ -285,6 +289,7 @@
     explainTerm,
     calculateProgress,
     diffSnapshots,
+    updateEventId,
     buildDocumentGraph,
   };
 })();

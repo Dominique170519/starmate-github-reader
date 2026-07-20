@@ -81,3 +81,15 @@ test("limits annotations and refuses unknown explanations", async () => {
   assert.equal(core.explainTerm("quantum-wombat"), null);
   assert.equal(core.explainTerm("APIs").term, "API");
 });
+
+test("uses commit and document as a stable update id", async () => {
+  const core = await loadCore();
+  assert.equal(
+    core.updateEventId("o/r:README", "abc123"),
+    core.updateEventId("o/r:README", "abc123"),
+  );
+  assert.notEqual(
+    core.updateEventId("o/r:README", "abc123"),
+    core.updateEventId("o/r:README", "def456"),
+  );
+});

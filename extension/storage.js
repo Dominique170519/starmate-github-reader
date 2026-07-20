@@ -48,6 +48,18 @@
       .slice(0, 50);
   }
 
+  async function listUpdateEvents(documentId) {
+    const events = await get(`updates:${documentId}`, []);
+    return [...events].sort((left, right) => right.checkedAt - left.checkedAt);
+  }
+
+  async function saveUpdateEvent(event) {
+    const current = await listUpdateEvents(event.documentId);
+    const next = [event, ...current.filter((item) => item.id !== event.id)].slice(0, 100);
+    await set(`updates:${event.documentId}`, next);
+    return event;
+  }
+
   globalThis.StarMateStorage = {
     get,
     set,
@@ -56,5 +68,7 @@
     getSnapshot,
     saveSnapshot,
     listSavedSnapshots,
+    listUpdateEvents,
+    saveUpdateEvent,
   };
 })();
