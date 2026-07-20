@@ -32,3 +32,14 @@ test("maps the Datawhale Docsify hash to markdown", async () => {
   assert.equal(adapter.projectId, "datawhalechina/hello-agents");
   assert.match(adapter.documentPath, /^chapter15\/.+\.md$/);
 });
+
+test("uses the hash route in Docsify document identity", async () => {
+  const adapters = await loadAdapters();
+  const first = adapters.fromLocation(
+    new URL("https://datawhalechina.github.io/hello-agents/#/chapter1/a"),
+  );
+  const second = adapters.fromLocation(
+    new URL("https://datawhalechina.github.io/hello-agents/#/chapter2/b"),
+  );
+  assert.notEqual(first.documentId, second.documentId);
+});

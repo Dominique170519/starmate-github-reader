@@ -2,12 +2,11 @@
   const APP_URL = "https://windy3f3f3f3f-how-claude-code-works.vercel.app";
   // StarMateStorage keeps notes and reading state in chrome.storage.local.
   const ROOT_ID = "starmate-extension-root";
-  if (document.getElementById(ROOT_ID)) return;
-
-  const adapter = globalThis.StarMateAdapters?.fromLocation(location);
-  if (!adapter) return;
-  const article = adapter.read(document);
-  if (!article.root) return;
+  let currentDocumentId = "";
+  let currentSignature = "";
+  let cleanupSession = () => {};
+  let stopWatchingRoute = () => {};
+  let refreshGeneration = 0;
 
   function create(tag, className = "", text = "") {
     const node = document.createElement(tag);
@@ -30,6 +29,61 @@
     target.scrollIntoView({ behavior: "smooth", block: "center" });
     window.setTimeout(() => target.classList.remove("starmate-source-highlight"), 2600);
   }
+
+  function waitForArticle(adapter, previousSignature = "", timeoutMs = 8000) {
+    return new Promise((resolve) => {
+      let settled = false;
+      let observer;
+      let timeout;
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        observer?.disconnect();
+        window.clearTimeout(timeout);
+        resolve(value);
+      };
+      const check = () => {
+        const candidate = adapter.read(document);
+        const signature = candidate.root
+          ? globalThis.StarMateCore.fingerprint(candidate.root.textContent || "")
+          : "";
+        const routeContentChanged = adapter.kind !== "docsify"
+          || !previousSignature
+          || signature !== previousSignature;
+        if (candidate.root && candidate.sections.length > 0 && routeContentChanged) {
+          finish({ article: candidate, signature });
+        }
+      };
+      observer = new MutationObserver(check);
+      observer.observe(document.documentElement, { childList: true, subtree: true });
+      timeout = window.setTimeout(() => finish(null), timeoutMs);
+      requestAnimationFrame(check);
+    });
+  }
+
+  function showWaitingShell(adapter) {
+    document.getElementById(ROOT_ID)?.remove();
+    const waitingShell = create("div", "starmate-extension-shell");
+    waitingShell.id = ROOT_ID;
+    const waitingLauncher = create("button", "starmate-launcher", "✦ 重试伴读");
+    waitingLauncher.type = "button";
+    waitingLauncher.setAttribute("aria-label", "重新尝试读取正文");
+    const waitingPanel = create("aside", "starmate-panel open");
+    const waitingBody = create("section", "starmate-view active");
+    waitingBody.append(
+      create("strong", "", adapter.projectId),
+      create("p", "starmate-empty", "正文尚未加载，重新打开侧栏后会再次尝试。"),
+    );
+    waitingPanel.append(waitingBody);
+    waitingLauncher.addEventListener("click", () => refreshForLocation(true));
+    waitingShell.append(waitingLauncher, waitingPanel);
+    document.body.append(waitingShell);
+  }
+
+  function mount(adapter, article) {
+    document.getElementById(ROOT_ID)?.remove();
+    const controller = new AbortController();
+    let disposed = false;
 
   const shell = create("div", "starmate-extension-shell");
   shell.id = ROOT_ID;
@@ -572,7 +626,7 @@
 
   ["scroll", "pointerdown", "keydown", "selectionchange"].forEach((eventName) => {
     const target = eventName === "selectionchange" ? document : window;
-    target.addEventListener(eventName, scheduleProgress, { passive: true });
+    target.addEventListener(eventName, scheduleProgress, { passive: true, signal: controller.signal });
   });
 
   const activeTimer = window.setInterval(() => {
@@ -602,17 +656,58 @@
   });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !termCard.hidden) hideTermCard();
-  });
+  }, { signal: controller.signal });
 
   window.addEventListener("pagehide", () => {
     window.clearInterval(activeTimer);
     globalThis.StarMateStorage.saveDocumentState(adapter.documentId, state);
-  });
+  }, { signal: controller.signal });
 
   globalThis.StarMateStorage.getDocumentState(adapter.documentId).then((saved) => {
+    if (disposed) return;
     state = { ...state, ...saved };
     renderProgress(state.completed);
     annotateTerms();
     compareAndSaveSnapshot();
   });
+
+    return () => {
+      disposed = true;
+      controller.abort();
+      window.clearInterval(activeTimer);
+      window.clearTimeout(saveTimer);
+      if (frame) cancelAnimationFrame(frame);
+      globalThis.StarMateStorage.saveDocumentState(adapter.documentId, state);
+      document.querySelectorAll(".starmate-term").forEach((mark) => {
+        const parent = mark.parentNode;
+        mark.replaceWith(document.createTextNode(mark.textContent || ""));
+        parent?.normalize();
+      });
+      document.getElementById(ROOT_ID)?.remove();
+    };
+  }
+
+  async function refreshForLocation(force = false) {
+    const adapter = globalThis.StarMateAdapters?.fromLocation(location);
+    if (!adapter) return;
+    if (!force && adapter.documentId === currentDocumentId && document.getElementById(ROOT_ID)) return;
+    const generation = ++refreshGeneration;
+    const previousSignature = currentSignature;
+    cleanupSession();
+    stopWatchingRoute();
+    currentDocumentId = adapter.documentId;
+    const result = await waitForArticle(adapter, previousSignature);
+    if (generation !== refreshGeneration) return;
+    if (!result) {
+      currentSignature = "";
+      showWaitingShell(adapter);
+      stopWatchingRoute = adapter.watch(() => refreshForLocation());
+      return;
+    }
+    currentSignature = result.signature;
+    cleanupSession = mount(adapter, result.article);
+    stopWatchingRoute = adapter.watch(() => refreshForLocation());
+  }
+
+  refreshForLocation(Boolean(document.getElementById(ROOT_ID)));
 })();
