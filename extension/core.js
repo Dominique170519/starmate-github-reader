@@ -48,10 +48,126 @@
       analogy: "像不同电器都能使用的统一插座标准。",
       role: "作者用它说明工具怎样接入智能体。",
     },
+    "tool call": {
+      term: "Tool Call",
+      plain: "模型请求外部工具执行一次具体操作。",
+      analogy: "像助理填好一张表，请同事按表办事。",
+      role: "作者用它说明模型怎样把想法交给程序执行。",
+    },
+    embedding: {
+      term: "Embedding",
+      plain: "把文字转换成一组便于比较含义的数字。",
+      analogy: "像给每段文字生成一张语义坐标。",
+      role: "作者用它说明程序怎样按意思查找相近内容。",
+    },
+    "vector database": {
+      term: "Vector Database",
+      plain: "专门保存和查找语义坐标的数据库。",
+      analogy: "像按内容相似度找书的图书馆。",
+      role: "作者用它保存 Embedding 并快速找回相关资料。",
+    },
+    workflow: {
+      term: "Workflow",
+      plain: "把一项任务拆成按顺序执行的步骤。",
+      analogy: "像照着菜谱一道工序一道工序做菜。",
+      role: "作者用它展示系统完成任务的固定流程。",
+    },
+    "function calling": {
+      term: "Function Calling",
+      plain: "让模型按规定格式选择并填写一个程序功能。",
+      analogy: "像从服务清单中选项目，再填写申请单。",
+      role: "作者用它约束模型怎样调用代码功能。",
+    },
+    model: {
+      term: "Model",
+      plain: "从大量数据中学会识别规律并生成结果的程序。",
+      analogy: "像经过大量练习、形成判断能力的学生。",
+      role: "作者用它指代负责理解或生成内容的核心能力。",
+    },
+    framework: {
+      term: "Framework",
+      plain: "为开发某类软件准备好的结构和常用能力。",
+      analogy: "像已经搭好承重结构的毛坯房。",
+      role: "作者用它说明项目建立在哪套开发骨架上。",
+    },
+    dependency: {
+      term: "Dependency",
+      plain: "项目运行时依赖的其他代码或工具。",
+      analogy: "像做菜时必须提前备好的原料。",
+      role: "作者用它列出项目需要安装或调用的外部能力。",
+    },
+    repository: {
+      term: "Repository",
+      plain: "集中保存项目文件和修改记录的空间。",
+      analogy: "像带完整修订历史的项目文件夹。",
+      role: "作者用它指代 GitHub 上的整个项目。",
+    },
+    branch: {
+      term: "Branch",
+      plain: "从同一份代码分出去独立修改的一条版本线。",
+      analogy: "像复制一份草稿单独修改，之后再合回正文。",
+      role: "作者用它说明代码修改在哪条版本线上进行。",
+    },
+    commit: {
+      term: "Commit",
+      plain: "一次带说明的代码修改记录。",
+      analogy: "像文档历史里可以随时查看的一次保存。",
+      role: "作者用它标记项目在某个时刻发生的具体变化。",
+    },
+    docker: {
+      term: "Docker",
+      plain: "把程序和运行所需环境一起装进可搬运容器的工具。",
+      analogy: "像把设备和配件装进标准集装箱，到哪都能开箱使用。",
+      role: "作者用它减少不同电脑运行环境不一致的问题。",
+    },
+    http: {
+      term: "HTTP",
+      plain: "浏览器和服务器在网络上传递信息的一套约定。",
+      analogy: "像寄信时统一的信封和地址格式。",
+      role: "作者用它说明网页或接口怎样传送请求与结果。",
+    },
+    endpoint: {
+      term: "Endpoint",
+      plain: "一个接口可以被访问的具体网络地址。",
+      analogy: "像机构里能办理某项业务的具体窗口。",
+      role: "作者用它指出请求应发送到哪里。",
+    },
+    sdk: {
+      term: "SDK",
+      plain: "为某个平台准备好的开发工具和示例集合。",
+      analogy: "像包含工具、说明书和样例的组装套件。",
+      role: "作者用它帮助开发者更快接入某项能力。",
+    },
+    cache: {
+      term: "Cache",
+      plain: "暂时保存常用结果，避免重复计算或下载。",
+      analogy: "像把常用物品放在手边的小抽屉。",
+      role: "作者用它提高速度并减少重复请求。",
+    },
+  });
+
+  const aliases = Object.freeze({
+    agents: "agent",
+    apis: "api",
+    prompts: "prompt",
+    tokens: "token",
+    "tool calls": "tool call",
+    embeddings: "embedding",
+    workflows: "workflow",
+    models: "model",
+    frameworks: "framework",
+    dependencies: "dependency",
+    repositories: "repository",
+    branches: "branch",
+    commits: "commit",
+    endpoints: "endpoint",
+    sdks: "sdk",
+    caches: "cache",
   });
 
   function normalizeConcept(value = "") {
-    return String(value).trim().toLowerCase().replace(/[\s_-]+/g, " ");
+    const normalized = String(value).trim().toLowerCase().replace(/[\s_-]+/g, " ");
+    return aliases[normalized] || normalized;
   }
 
   function fingerprint(text = "") {
@@ -66,11 +182,24 @@
   function findKnownTerms(text = "", limit = 6) {
     const source = String(text).toLowerCase();
     return Object.entries(glossary)
-      .map(([key, value]) => ({ index: source.indexOf(key), value }))
+      .map(([key, value]) => {
+        const spellings = [key, ...Object.keys(aliases).filter((alias) => aliases[alias] === key)];
+        const indices = spellings.map((spelling) => {
+          const escaped = spelling.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          const match = new RegExp(`(^|[^a-z0-9])(${escaped})(?=$|[^a-z0-9])`, "i").exec(source);
+          return match ? match.index + match[1].length : -1;
+        }).filter((index) => index >= 0);
+        return { index: indices.length ? Math.min(...indices) : -1, value };
+      })
       .filter((item) => item.index >= 0)
       .sort((left, right) => left.index - right.index)
       .slice(0, Math.max(0, limit))
       .map((item) => ({ ...item.value }));
+  }
+
+  function explainTerm(value = "") {
+    const key = normalizeConcept(value);
+    return glossary[key] ? { ...glossary[key] } : null;
   }
 
   function calculateProgress({
@@ -153,6 +282,7 @@
     normalizeConcept,
     fingerprint,
     findKnownTerms,
+    explainTerm,
     calculateProgress,
     diffSnapshots,
     buildDocumentGraph,

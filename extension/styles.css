@@ -18,5 +18,12 @@
 .starmate-panel.open~* .starmate-reading-progress-copy,.starmate-panel.open .starmate-reading-progress-copy,.starmate-extension-shell:has(.starmate-panel.open) .starmate-reading-progress-copy { display:block; }
 .starmate-reading-detail { display:grid; grid-template-columns:minmax(78px,auto) 1fr; gap:10px 12px; align-items:start; border:1px solid #ded9ce; border-radius:12px; background:#fffdf8; padding:13px; }
 .starmate-reading-detail small { color:#8b857b; font-size:9px; }.starmate-reading-detail strong,.starmate-reading-detail span { color:#393733; font-size:11px; line-height:1.45; }
+.starmate-term { display:inline; border:0; border-bottom:1px dashed #8065ca; background:rgba(128,101,202,.09); color:inherit; padding:0 2px; font:inherit; cursor:help; }
+.starmate-term:focus-visible { border-radius:3px; outline:2px solid #8065ca; outline-offset:2px; }
+.starmate-term-card { position:fixed; z-index:2147483002; right:420px; bottom:24px; width:min(330px,calc(100vw - 24px)); box-sizing:border-box; border:1px solid #d7d0ea; border-radius:16px; background:#fffdf8; box-shadow:0 20px 60px rgba(37,36,33,.25); padding:15px; color:#393733; }
+.starmate-term-card[hidden] { display:none; }.starmate-term-card header { display:flex; align-items:center; justify-content:space-between; gap:10px; }.starmate-term-card header strong { color:#6e55b6; font-size:15px; }.starmate-term-card header button { border:0; background:transparent; color:#716e67; font-size:20px; cursor:pointer; }
+.starmate-term-card p { display:grid; gap:4px; margin:12px 0; color:#5d5952; font-size:11px; line-height:1.65; }.starmate-term-card p strong { color:#252421; font-size:9px; letter-spacing:.08em; }
+.starmate-term-actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; }.starmate-term-actions .starmate-secondary { margin-top:0; }
 @media (prefers-reduced-motion:reduce) { .starmate-reading-progress-fill,.starmate-source-highlight { transition:none!important; } }
-@media (max-width:600px) { .starmate-panel { top:0; right:0; bottom:0; width:100vw; border-radius:0; }.starmate-extension-shell { right:10px; bottom:14px; } }
+@media (max-width:860px) { .starmate-term-card { right:12px; bottom:76px; } }
+@media (max-width:600px) { .starmate-panel { top:0; right:0; bottom:0; width:100vw; border-radius:0; }.starmate-extension-shell { right:10px; bottom:14px; }.starmate-term-card { right:12px; bottom:12px; } }

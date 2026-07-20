@@ -164,6 +164,28 @@
   });
   noteView.append(noteHint, textarea, addSelection, noteStatus);
 
+  const termCard = create("section", "starmate-term-card");
+  termCard.setAttribute("role", "dialog");
+  termCard.setAttribute("aria-modal", "false");
+  termCard.setAttribute("aria-label", "专业名词解释");
+  termCard.hidden = true;
+  const termCardHeader = create("header");
+  const termCardTitle = create("strong", "", "名词解释");
+  const termCardClose = create("button", "", "×");
+  termCardClose.type = "button";
+  termCardClose.setAttribute("aria-label", "关闭名词解释");
+  termCardHeader.append(termCardTitle, termCardClose);
+  const termPlain = create("p");
+  const termAnalogy = create("p");
+  const termRole = create("p");
+  const termActions = create("div", "starmate-term-actions");
+  const understoodButton = create("button", "starmate-primary", "我懂了");
+  const reviewButton = create("button", "starmate-secondary", "需要回看");
+  understoodButton.type = "button";
+  reviewButton.type = "button";
+  termActions.append(understoodButton, reviewButton);
+  termCard.append(termCardHeader, termPlain, termAnalogy, termRole, termActions);
+
   body.append(chapterView, mapView, searchView, noteView);
   const footer = create("footer", "starmate-panel-footer");
   const addButton = create("button", "starmate-primary", "加入星伴读知识库 →");
@@ -173,7 +195,7 @@
   });
   footer.append(addButton, create("small", "", "无模型版 · 阅读数据默认只保存在当前设备"));
   panel.append(header, intro, tabs, body, footer);
-  shell.append(progress, launcher, panel);
+  shell.append(progress, launcher, panel, termCard);
   document.body.append(shell);
 
   function showView(id) {
@@ -195,6 +217,73 @@
   let lastActivityAt = Date.now();
   let saveTimer = 0;
   let frame = 0;
+  let activeTerm = "";
+  let lastTermButton = null;
+
+  function addUnique(items, value) {
+    return [...new Set([...(items || []), value])];
+  }
+
+  function hideTermCard() {
+    termCard.hidden = true;
+    lastTermButton?.focus();
+  }
+
+  function showTermCard(button, explanation, sourceText) {
+    activeTerm = explanation.term;
+    lastTermButton = button;
+    termCardTitle.textContent = explanation.term;
+    termPlain.replaceChildren(create("strong", "", "简单解释"), document.createTextNode(explanation.plain));
+    termAnalogy.replaceChildren(create("strong", "", "生活类比"), document.createTextNode(explanation.analogy));
+    termRole.replaceChildren(
+      create("strong", "", "在这段话里的作用"),
+      document.createTextNode(`${explanation.role} 原文位置：“${sourceText.slice(0, 120)}”`),
+    );
+    termCard.hidden = false;
+    termCardClose.focus();
+  }
+
+  function wrapFirstKnownTerm(container, explanation, sectionId, sourceText) {
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+    const escaped = explanation.term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = new RegExp(`(^|[^a-z0-9])(${escaped}s?)(?=$|[^a-z0-9])`, "i");
+    let textNode = walker.nextNode();
+    while (textNode) {
+      const parent = textNode.parentElement;
+      if (
+        parent
+        && !parent.closest("a, code, pre, script, style, textarea, .starmate-term, #starmate-extension-root")
+      ) {
+        const match = pattern.exec(textNode.nodeValue || "");
+        if (match) {
+          const index = match.index + match[1].length;
+          const matchNode = textNode.splitText(index);
+          matchNode.splitText(match[2].length);
+          const mark = create("button", "starmate-term", match[2]);
+          mark.type = "button";
+          mark.dataset.starmateTerm = explanation.term;
+          mark.dataset.starmateSection = sectionId;
+          mark.addEventListener("click", () => showTermCard(mark, explanation, sourceText));
+          matchNode.replaceWith(mark);
+          return true;
+        }
+      }
+      textNode = walker.nextNode();
+    }
+    return false;
+  }
+
+  function annotateTerms() {
+    for (const section of article.sections) {
+      const explanations = globalThis.StarMateCore.findKnownTerms(section.text, 6);
+      const paragraphs = article.paragraphs.filter((item) => item.sectionId === section.id);
+      for (const explanation of explanations) {
+        for (const paragraph of paragraphs) {
+          if (wrapFirstKnownTerm(paragraph.element, explanation, section.id, paragraph.text)) break;
+        }
+      }
+    }
+  }
 
   function currentSection() {
     const marker = window.scrollY + window.innerHeight * 0.28;
@@ -271,6 +360,22 @@
     renderProgress(true);
   });
 
+  termCardClose.addEventListener("click", hideTermCard);
+  understoodButton.addEventListener("click", () => {
+    state.seenTerms = addUnique(state.seenTerms, activeTerm);
+    state.reviewTerms = (state.reviewTerms || []).filter((term) => term !== activeTerm);
+    globalThis.StarMateStorage.saveDocumentState(adapter.documentId, state);
+    hideTermCard();
+  });
+  reviewButton.addEventListener("click", () => {
+    state.reviewTerms = addUnique(state.reviewTerms, activeTerm);
+    globalThis.StarMateStorage.saveDocumentState(adapter.documentId, state);
+    hideTermCard();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !termCard.hidden) hideTermCard();
+  });
+
   window.addEventListener("pagehide", () => {
     window.clearInterval(activeTimer);
     globalThis.StarMateStorage.saveDocumentState(adapter.documentId, state);
@@ -279,5 +384,6 @@
   globalThis.StarMateStorage.getDocumentState(adapter.documentId).then((saved) => {
     state = { ...state, ...saved };
     renderProgress(state.completed);
+    annotateTerms();
   });
 })();

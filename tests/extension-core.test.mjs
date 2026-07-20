@@ -73,3 +73,11 @@ test("clamps progress and estimates remaining minutes", async () => {
     remainingCharacters: 0,
   }).remainingMinutes, 0);
 });
+
+test("limits annotations and refuses unknown explanations", async () => {
+  const core = await loadCore();
+  const found = core.findKnownTerms("Agent API JSON Context Prompt Token RAG MCP", 6);
+  assert.equal(found.length, 6);
+  assert.equal(core.explainTerm("quantum-wombat"), null);
+  assert.equal(core.explainTerm("APIs").term, "API");
+});
