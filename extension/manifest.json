@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "星伴读 · GitHub 伴读侧栏",
+  "version": "0.2.0",
+  "description": "在 GitHub 与技术文档页查看章节、解释术语、记录进度、追踪更新并生成知识图谱。",
+  "permissions": ["storage", "alarms", "scripting", "activeTab"],
+  "host_permissions": ["https://github.com/*", "https://api.github.com/*"],
+  "optional_host_permissions": ["https://*.github.io/*"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "在当前页面启用星伴读" },
+  "content_scripts": [
+    {
+      "matches": ["https://github.com/*/*"],
+      "js": ["core.js", "adapters.js", "storage.js", "content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}
