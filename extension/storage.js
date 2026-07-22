@@ -152,6 +152,14 @@
     return set("note-operations:v1", operations.filter((operation) => !ids.has(operation.note?.id)));
   }
 
+  async function getNoteCursor() {
+    return get("note-cursor:v1", "0");
+  }
+
+  async function setNoteCursor(cursor) {
+    return set("note-cursor:v1", String(cursor || "0"));
+  }
+
   async function applyRemoteNotes(remoteNotes = []) {
     const localNotes = await get("notes:v1", []);
     const byId = new Map(localNotes.map((note) => [note.id, note]));
@@ -205,6 +213,8 @@
     pendingNoteBatch,
     acknowledgeNotes,
     applyRemoteNotes,
+    getNoteCursor,
+    setNoteCursor,
     migrateLegacyNote,
   };
 })();
