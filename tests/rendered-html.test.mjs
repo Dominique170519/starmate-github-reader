@@ -153,6 +153,16 @@ test("keeps repository learning usable on Vercel without Cloudflare D1", async (
   assert.match(page, /已保存到当前设备/);
 });
 
+test("uses the stable webpack build path for Vercel deployments", async () => {
+  const vercelConfig = JSON.parse(await readFile(new URL("../vercel.json", import.meta.url), "utf8"));
+  assert.equal(vercelConfig.buildCommand, "npx next build --webpack");
+});
+
+test("keeps local generated worktrees out of lint checks", async () => {
+  const eslintConfig = await readFile(new URL("../eslint.config.mjs", import.meta.url), "utf8");
+  assert.match(eslintConfig, /"\.worktrees\/\*\*"/);
+});
+
 test("ships a no-model Chrome reading companion", async () => {
   const [page, manifest, content, adapters, storage, background, core, styles] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
