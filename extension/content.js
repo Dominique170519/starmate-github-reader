@@ -227,10 +227,12 @@
   const newNote = create("button", "starmate-primary", "＋ 新建笔记");
   const addSelection = create("button", "starmate-secondary", "摘录选中原文");
   const connectGitHub = create("button", "starmate-secondary", "连接 GitHub");
+  const syncNow = create("button", "starmate-secondary", "立即同步");
   newNote.type = "button";
   addSelection.type = "button";
   connectGitHub.type = "button";
-  noteToolbar.append(newNote, addSelection, connectGitHub);
+  syncNow.type = "button";
+  noteToolbar.append(newNote, addSelection, connectGitHub, syncNow);
 
   const composer = create("section", "starmate-note-composer");
   composer.hidden = true;
@@ -272,6 +274,11 @@
   openNotebook.rel = "noopener";
   let editingNote = null;
   let draftQuote = "";
+
+  function requestNoteSync() {
+    noteStatus.textContent = "已在本地保存 · 等待同步";
+    chrome.runtime.sendMessage({ type: "starmate-note-changed" });
+  }
 
   function resetComposer() {
     editingNote = null;
@@ -323,15 +330,18 @@
       [pin, review, edit, remove].forEach((button) => { button.type = "button"; actions.append(button); });
       pin.addEventListener("click", async () => {
         await globalThis.StarMateStorage.saveNote({ ...note, pinned: !note.pinned, version: note.version + 1, updatedAt: new Date().toISOString() });
+        requestNoteSync();
         renderNotes();
       });
       review.addEventListener("click", async () => {
         await globalThis.StarMateStorage.saveNote({ ...note, reviewNeeded: !note.reviewNeeded, version: note.version + 1, updatedAt: new Date().toISOString() });
+        requestNoteSync();
         renderNotes();
       });
       edit.addEventListener("click", () => openComposer(note));
       remove.addEventListener("click", async () => {
         await globalThis.StarMateStorage.removeNote(note.id);
+        requestNoteSync();
         renderNotes();
       });
       card.append(tags, actions);
@@ -346,14 +356,26 @@
       noteStatus.textContent = result?.connected ? "已连接 GitHub · 等待同步" : result?.error || "连接失败，请重试";
     });
   });
+  syncNow.addEventListener("click", () => {
+    noteStatus.textContent = "正在安全同步…";
+    chrome.runtime.sendMessage({ type: "starmate-sync-now" }, (result) => {
+      if (!result) noteStatus.textContent = "网络暂时不可用，笔记仍在本地";
+    });
+  });
   chrome.runtime.onMessage.addListener((message) => {
     if (message?.type !== "starmate-sync-status") return;
     const labels = {
-      waiting: "等待网页端批准插件连接…",
-      connected: "已连接 GitHub · 等待同步",
+      connecting: "等待网页端批准插件连接…",
+      waiting: "网络暂时不可用 · 笔记仍在本地等待同步",
+      syncing: "正在安全同步…",
+      synced: "已同步 · 网页端和其他设备可见",
+      conflict: "发现版本差异 · 已保留历史版本",
+      "auth-required": "需要连接 GitHub 才能跨设备同步",
+      local: "云端暂不可用 · 笔记仍保存在本设备",
       error: "连接失败，请重试",
     };
     noteStatus.textContent = labels[message.status] || "仅保存在本设备";
+    if (message.status === "synced" || message.status === "conflict") renderNotes();
   });
   addSelection.addEventListener("click", () => {
     const selection = window.getSelection()?.toString().replace(/\s+/g, " ").trim();
@@ -388,13 +410,17 @@
     }, now);
     await globalThis.StarMateStorage.saveNote(note);
     resetComposer();
-    noteStatus.textContent = "已保存到本设备";
+    requestNoteSync();
     renderNotes();
   });
   globalThis.StarMateStorage.migrateLegacyNote(adapter.documentId, {
     repositoryId: article.projectId,
     sourceUrl: article.url,
   }).then(renderNotes);
+  chrome.runtime.sendMessage({ type: "starmate-sync-state" }, (state) => {
+    const labels = { syncing: "正在安全同步…", synced: "已同步 · 网页端和其他设备可见", conflict: "发现版本差异 · 已保留历史版本", waiting: "已在本地保存 · 等待同步", "auth-required": "需要连接 GitHub 才能跨设备同步", local: "仅保存在本设备" };
+    noteStatus.textContent = labels[state?.status] || "仅保存在本设备";
+  });
   noteView.append(noteHint, noteToolbar, composer, noteStatus, noteList, openNotebook);
 
   const termCard = create("section", "starmate-term-card");

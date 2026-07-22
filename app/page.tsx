@@ -11,6 +11,8 @@ import { buildReproductionTask, extractOfficialCases } from "@/lib/practice-case
 import type { PracticeCase, PracticeTask } from "@/lib/practice-cases.mjs";
 import type { RepositoryLearningPackage } from "@/lib/repository-learning";
 import { createWebNoteRepository } from "@/lib/web-note-repository.mjs";
+import { createWebNoteSyncController } from "@/lib/web-note-sync.mjs";
+import type { NoteSyncController, NoteSyncState } from "@/lib/web-note-sync.mjs";
 
 type View = "home" | "beginner" | "overview" | "reader" | "notebook" | "review";
 type OverviewMode = "documents" | "topic" | "path" | "graph" | "cases";
@@ -75,6 +77,7 @@ type SyncSession = {
   syncAvailable: boolean;
   localOnly: boolean;
   user?: { login: string; avatarUrl: string } | null;
+  devices?: Array<{ id: string; label: string; lastSeenAt: string; createdAt: string }>;
 };
 
 type LearningPathLayer = {
@@ -818,6 +821,9 @@ export default function Home() {
   const [extensionChallenge, setExtensionChallenge] = useState("");
   const [syncSession, setSyncSession] = useState<SyncSession | null>(null);
   const [extensionApproval, setExtensionApproval] = useState<"idle" | "approving" | "approved" | "error">("idle");
+  const [noteSyncEnabled, setNoteSyncEnabled] = useState(false);
+  const [noteSync, setNoteSync] = useState<NoteSyncState>({ status: "local", conflicts: 0, lastSyncedAt: null, localOnly: false, user: null });
+  const noteSyncController = useRef<NoteSyncController | null>(null);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("starmate-lesson-complete");
@@ -826,19 +832,45 @@ export default function Home() {
     setGithubUser(window.localStorage.getItem("starmate-github-user") || "");
     setSavedRepoIds(JSON.parse(window.localStorage.getItem("starmate-saved-repos") || "[]"));
     setStarredRepos(JSON.parse(window.localStorage.getItem("starmate-starred-repos") || "[]"));
+    setNoteSyncEnabled(window.localStorage.getItem("starmate-note-sync-enabled:v1") === "true");
+    if (new URLSearchParams(window.location.search).get("open") === "notebook") setView("notebook");
     /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
 
   useEffect(() => {
     const challenge = new URLSearchParams(window.location.search).get("connectExtension") || "";
-    if (!/^[A-Za-z0-9_-]{24,200}$/.test(challenge)) return;
-    /* eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate a short-lived extension connection request from the URL */
-    setExtensionChallenge(challenge);
+    if (/^[A-Za-z0-9_-]{24,200}$/.test(challenge)) {
+      /* eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate a short-lived extension connection request from the URL */
+      setExtensionChallenge(challenge);
+    }
     fetch("/api/auth/session", { cache: "no-store" })
       .then((response) => response.json())
       .then((session: SyncSession) => setSyncSession(session))
       .catch(() => setSyncSession({ authenticated: false, syncAvailable: false, localOnly: true }));
   }, []);
+
+  useEffect(() => {
+    const repository = createWebNoteRepository(window.localStorage);
+    const controller = createWebNoteSyncController({
+      repository,
+      onStatus(state) {
+        setNoteSync(state);
+        setNotes(repository.list());
+      },
+    });
+    noteSyncController.current = controller;
+    if (noteSyncEnabled) controller.refreshSession();
+    const retry = () => { if (noteSyncEnabled) controller.syncNow(); };
+    const refocus = () => { if (noteSyncEnabled && document.visibilityState === "visible") controller.syncNow(); };
+    window.addEventListener("online", retry);
+    window.addEventListener("focus", refocus);
+    return () => {
+      controller.dispose();
+      if (noteSyncController.current === controller) noteSyncController.current = null;
+      window.removeEventListener("online", retry);
+      window.removeEventListener("focus", refocus);
+    };
+  }, [noteSyncEnabled]);
 
   useEffect(() => {
     if (overviewMode !== "cases" || !knowledgePackages.length) return;
@@ -1404,6 +1436,11 @@ export default function Home() {
     setNotes(createWebNoteRepository(window.localStorage).list());
   }
 
+  function saveNotebookCard(note: NoteCard) {
+    if (noteSyncEnabled && noteSyncController.current) noteSyncController.current.save(note);
+    else createWebNoteRepository(window.localStorage).save(note);
+  }
+
   function createNotebookNote(draft: NoteDraft) {
     const note = createNoteCard({
       repositoryId: activeRepositoryId,
@@ -1418,24 +1455,26 @@ export default function Home() {
       tags: draft.tags,
       reviewNeeded: draft.type === "review",
     });
-    createWebNoteRepository(window.localStorage).save(note);
+    saveNotebookCard(note);
     setNoteCapture({});
     refreshNotebook();
   }
 
   function updateNotebookNote(note: NoteCard) {
     const now = new Date().toISOString();
-    createWebNoteRepository(window.localStorage).save({ ...note, updatedAt: now, version: note.version + 1 });
+    saveNotebookCard({ ...note, updatedAt: now, version: note.version + 1 });
     refreshNotebook();
   }
 
   function deleteNotebookNote(noteId: string) {
-    createWebNoteRepository(window.localStorage).remove(noteId);
+    if (noteSyncEnabled && noteSyncController.current) noteSyncController.current.remove(noteId);
+    else createWebNoteRepository(window.localStorage).remove(noteId);
     refreshNotebook();
   }
 
   function restoreNotebookNote(noteId: string) {
-    createWebNoteRepository(window.localStorage).restoreVersion(noteId);
+    if (noteSyncEnabled && noteSyncController.current) noteSyncController.current.restoreVersion(noteId);
+    else createWebNoteRepository(window.localStorage).restoreVersion(noteId);
     refreshNotebook();
   }
 
@@ -1567,7 +1606,7 @@ export default function Home() {
       repositoryId={activeRepositoryId}
       documentId={activeDocumentId}
       initialDraft={noteCapture}
-      syncLabel="仅保存在本设备 · 开启 GitHub 同步后可跨端使用"
+      syncLabel={noteSyncEnabled ? noteSyncLabels[noteSync.status] : "仅保存在本设备 · 可选择开启 GitHub 同步"}
       historyCount={(noteId) => createWebNoteRepository(window.localStorage).history(noteId).length}
       onCreate={createNotebookNote}
       onUpdate={updateNotebookNote}
@@ -1610,10 +1649,55 @@ export default function Home() {
       });
       if (!response.ok) throw new Error();
       setExtensionApproval("approved");
+      const session = await fetch("/api/auth/session", { cache: "no-store" }).then((result) => result.json()) as SyncSession;
+      setSyncSession(session);
     } catch {
       setExtensionApproval("error");
     }
   }
+
+  function enableNoteSync() {
+    window.localStorage.setItem("starmate-note-sync-enabled:v1", "true");
+    setNoteSyncEnabled(true);
+  }
+
+  function disableNoteSync() {
+    window.localStorage.setItem("starmate-note-sync-enabled:v1", "false");
+    setNoteSyncEnabled(false);
+    setNoteSync((current) => ({ ...current, status: "local" }));
+  }
+
+  async function revokeSyncDevice(deviceId: string) {
+    const response = await fetch("/api/auth/session", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ deviceId }),
+    });
+    if (!response.ok) return;
+    setSyncSession((current) => current ? { ...current, devices: (current.devices || []).filter((device) => device.id !== deviceId) } : current);
+  }
+
+  async function deleteCloudNotes() {
+    const confirmation = window.prompt("这只会删除云端副本，本机笔记仍会保留。请输入 DELETE MY CLOUD NOTES 继续：");
+    if (confirmation !== "DELETE MY CLOUD NOTES") return;
+    const response = await fetch("/api/notes?scope=cloud", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirm: confirmation }),
+    });
+    if (!response.ok) return;
+    disableNoteSync();
+    setSyncSession((current) => current ? { ...current, devices: [] } : current);
+  }
+
+  const noteSyncLabels: Record<NoteSyncState["status"], string> = {
+    local: "仅保存在本设备",
+    waiting: "已在本地保存 · 等待同步",
+    syncing: "正在安全同步…",
+    synced: "已同步到 GitHub 身份下的私有笔记库",
+    conflict: `发现 ${noteSync.conflicts} 个版本差异 · 已保留历史版本`,
+    "auth-required": "需要连接 GitHub 才能跨设备同步",
+  };
 
   return (
     <main className="app-shell">
@@ -2052,6 +2136,18 @@ export default function Home() {
         <div className="page notebook-page">
           <button className="back-link" onClick={() => setView("reader")}>← 返回伴读</button>
           <header className="notebook-page-hero"><div><p className="kicker">文章是入口，标签连接知识</p><h1>我的笔记，不再挤在<em>一个文本框里。</em></h1></div><p>按文章回到阅读现场，也可以用主题标签、笔记类型和待复习状态跨文章整理。</p></header>
+          <section className="note-sync-panel" aria-live="polite">
+            <div className="note-sync-identity">
+              {syncSession?.user?.avatarUrl ? <span className="github-avatar" style={{ backgroundImage: `url(${syncSession.user.avatarUrl})` }} aria-hidden="true" /> : <span>⌁</span>}
+              <div><small>跨设备笔记同步 · 自愿开启</small><strong>{syncSession?.user?.login ? `GitHub · ${syncSession.user.login}` : "尚未连接 GitHub"}</strong><p>{noteSyncEnabled ? noteSyncLabels[noteSync.status] : "笔记默认只留在本机；开启后才会上传云端。"}</p></div>
+            </div>
+            <div className="note-sync-actions">
+              {syncSession?.localOnly ? <em>当前部署未配置云端数据库，仍可正常使用本地笔记。</em> : !syncSession?.authenticated ? <a href="/api/auth/github/start?returnTo=%2F%3Fopen%3Dnotebook">连接 GitHub</a> : !noteSyncEnabled ? <button className="primary" onClick={enableNoteSync}>开启跨设备同步</button> : <><button onClick={() => noteSyncController.current?.syncNow()}>立即同步</button><button onClick={disableNoteSync}>暂停同步</button></>}
+            </div>
+            {noteSyncEnabled && noteSync.lastSyncedAt && <small className="note-sync-time">上次同步：{new Date(noteSync.lastSyncedAt).toLocaleString("zh-CN")}</small>}
+            {Boolean(syncSession?.devices?.length) && <div className="note-sync-devices"><strong>已连接插件</strong>{syncSession?.devices?.map((device) => <div key={device.id}><span>{device.label}</span><small>{new Date(device.lastSeenAt).toLocaleString("zh-CN")}</small><button onClick={() => revokeSyncDevice(device.id)}>断开设备</button></div>)}</div>}
+            {syncSession?.authenticated && <button className="delete-cloud-notes" onClick={deleteCloudNotes}>删除云端笔记（保留本机）</button>}
+          </section>
           {renderNotebookWorkspace(false)}
         </div>
       )}
