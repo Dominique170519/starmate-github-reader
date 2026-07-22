@@ -20,6 +20,7 @@ body { margin: 0; background: var(--paper); color: var(--ink); font-family: "Pin
 button, input { font: inherit; }
 button { color: inherit; }
 button:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid rgba(110,85,182,.28); outline-offset: 3px; }
+.extension-approval-banner { display:flex; align-items:center; justify-content:space-between; gap:24px; margin:18px auto 0; width:min(1180px,calc(100% - 36px)); padding:18px 22px; border:1px solid #cdbfeb; border-radius:16px; background:#f5f0ff; box-shadow:0 10px 28px rgba(65,49,101,.08); }.extension-approval-banner>div { display:grid; gap:4px; }.extension-approval-banner span { color:var(--purple); font-size:8px; font-weight:900; letter-spacing:.08em; }.extension-approval-banner strong { font-size:14px; }.extension-approval-banner p,.extension-approval-banner em { margin:0; color:var(--muted); font-size:9px; line-height:1.6; }.extension-approval-banner button,.extension-approval-banner a { flex:none; border:0; border-radius:10px; background:var(--purple); padding:11px 14px; color:white; font-size:9px; font-weight:900; text-decoration:none; cursor:pointer; }.extension-approval-banner>b { color:#386345; font-size:10px; }
 
 .app-shell { min-height: 100vh; }
 .topbar { height: 72px; display: flex; align-items: center; justify-content: space-between; padding: 0 5vw; border-bottom: 1px solid rgba(123,116,102,.16); background: rgba(247,244,237,.92); position: sticky; top: 0; z-index: 30; backdrop-filter: blur(16px); }

@@ -70,6 +70,12 @@ type MentorMessage = {
 };
 
 type MentorStatus = "checking" | "ready" | "unconfigured" | "error";
+type SyncSession = {
+  authenticated: boolean;
+  syncAvailable: boolean;
+  localOnly: boolean;
+  user?: { login: string; avatarUrl: string } | null;
+};
 
 type LearningPathLayer = {
   type: "地图" | "原理" | "实验" | "实现" | "证据";
@@ -809,6 +815,9 @@ export default function Home() {
   const [makerInput, setMakerInput] = useState("工具：读取文件并返回真实内容");
   const [makerOutput, setMakerOutput] = useState("循环：没有工具调用时交付最终答案");
   const [evidenceChoice, setEvidenceChoice] = useState<"evidence" | "inference" | "unknown">("inference");
+  const [extensionChallenge, setExtensionChallenge] = useState("");
+  const [syncSession, setSyncSession] = useState<SyncSession | null>(null);
+  const [extensionApproval, setExtensionApproval] = useState<"idle" | "approving" | "approved" | "error">("idle");
 
   useEffect(() => {
     const saved = window.localStorage.getItem("starmate-lesson-complete");
@@ -818,6 +827,17 @@ export default function Home() {
     setSavedRepoIds(JSON.parse(window.localStorage.getItem("starmate-saved-repos") || "[]"));
     setStarredRepos(JSON.parse(window.localStorage.getItem("starmate-starred-repos") || "[]"));
     /* eslint-enable react-hooks/set-state-in-effect */
+  }, []);
+
+  useEffect(() => {
+    const challenge = new URLSearchParams(window.location.search).get("connectExtension") || "";
+    if (!/^[A-Za-z0-9_-]{24,200}$/.test(challenge)) return;
+    /* eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate a short-lived extension connection request from the URL */
+    setExtensionChallenge(challenge);
+    fetch("/api/auth/session", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((session: SyncSession) => setSyncSession(session))
+      .catch(() => setSyncSession({ authenticated: false, syncAvailable: false, localOnly: true }));
   }, []);
 
   useEffect(() => {
@@ -1579,6 +1599,22 @@ export default function Home() {
     }
   }
 
+  async function approveExtensionConnection() {
+    if (!extensionChallenge) return;
+    setExtensionApproval("approving");
+    try {
+      const response = await fetch("/api/auth/extension-connect", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ challenge: extensionChallenge }),
+      });
+      if (!response.ok) throw new Error();
+      setExtensionApproval("approved");
+    } catch {
+      setExtensionApproval("error");
+    }
+  }
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -1597,6 +1633,12 @@ export default function Home() {
         </nav>
         <div className="streak"><span>连续学习</span><strong>3 天</strong></div>
       </header>
+
+      {extensionChallenge && <section className="extension-approval-banner" role="status">
+        <div><span>Chrome 插件连接</span><strong>批准插件连接到你的星伴读笔记</strong><p>仅同步笔记卡片、标签、版本和删除状态；插件不会获得你的 GitHub 仓库权限。</p></div>
+        {extensionApproval === "approved" ? <b>✓ 已批准，请回到插件</b> : syncSession?.localOnly ? <em>当前部署还没有配置数据库和 GitHub OAuth，笔记仍仅保存在本设备。</em> : syncSession?.authenticated ? <button onClick={approveExtensionConnection} disabled={extensionApproval === "approving"}>{extensionApproval === "approving" ? "正在批准…" : "批准插件连接"}</button> : <a href={`/api/auth/github/start?returnTo=${encodeURIComponent(`/?connectExtension=${extensionChallenge}`)}`}>使用 GitHub 登录后批准</a>}
+        {extensionApproval === "error" && <em>连接码可能已经过期，请回到插件重新发起。</em>}
+      </section>}
 
       {view === "home" && (
         <div className="page home-page">

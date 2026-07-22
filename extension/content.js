@@ -226,9 +226,11 @@
   const noteToolbar = create("div", "starmate-note-toolbar");
   const newNote = create("button", "starmate-primary", "＋ 新建笔记");
   const addSelection = create("button", "starmate-secondary", "摘录选中原文");
+  const connectGitHub = create("button", "starmate-secondary", "连接 GitHub");
   newNote.type = "button";
   addSelection.type = "button";
-  noteToolbar.append(newNote, addSelection);
+  connectGitHub.type = "button";
+  noteToolbar.append(newNote, addSelection, connectGitHub);
 
   const composer = create("section", "starmate-note-composer");
   composer.hidden = true;
@@ -338,6 +340,21 @@
   }
 
   newNote.addEventListener("click", () => openComposer());
+  connectGitHub.addEventListener("click", () => {
+    noteStatus.textContent = "等待网页端批准插件连接…";
+    chrome.runtime.sendMessage({ type: "starmate-connect-github" }, (result) => {
+      noteStatus.textContent = result?.connected ? "已连接 GitHub · 等待同步" : result?.error || "连接失败，请重试";
+    });
+  });
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message?.type !== "starmate-sync-status") return;
+    const labels = {
+      waiting: "等待网页端批准插件连接…",
+      connected: "已连接 GitHub · 等待同步",
+      error: "连接失败，请重试",
+    };
+    noteStatus.textContent = labels[message.status] || "仅保存在本设备";
+  });
   addSelection.addEventListener("click", () => {
     const selection = window.getSelection()?.toString().replace(/\s+/g, " ").trim();
     if (!selection) {
