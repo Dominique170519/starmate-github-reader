@@ -17,6 +17,8 @@ test("extension service worker owns authenticated note transport and retry alarm
 test("content UI asks the service worker to sync without reading its bearer token", () => {
   assert.match(content, /starmate-note-changed/);
   assert.match(content, /立即同步/);
+  assert.match(content, /断开设备/);
+  assert.match(content, /删除云端笔记/);
   assert.doesNotMatch(content, /starmate:sync:extension-token/);
 });
 

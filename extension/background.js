@@ -3,6 +3,7 @@ const STYLE_FILES = ["styles.css"];
 const REGISTERED_PREFIX = "starmate-github-pages-";
 const APP_ORIGIN = "https://windy3f3f3f3f-how-claude-code-works.vercel.app";
 const EXTENSION_TOKEN_KEY = "starmate:sync:extension-token";
+const EXTENSION_DEVICE_KEY = "starmate:sync:device-id";
 const NOTE_OPERATIONS_KEY = "starmate:reader:note-operations:v1";
 const NOTES_KEY = "starmate:reader:notes:v1";
 const NOTE_CURSOR_KEY = "starmate:reader:note-cursor:v1";
@@ -234,7 +235,7 @@ async function connectExtension() {
     if (!result.token) throw new Error("missing-token");
     await chrome.storage.local.set({
       [EXTENSION_TOKEN_KEY]: result.token,
-      "starmate:sync:device-id": result.deviceId,
+      [EXTENSION_DEVICE_KEY]: result.deviceId,
       "starmate:sync:enabled": true,
     });
     await syncExtensionNotes();
@@ -260,6 +261,36 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (message?.type === "starmate-sync-now") {
     syncExtensionNotes().then(sendResponse);
+    return true;
+  }
+  if (message?.type === "starmate-disconnect-device") {
+    chrome.storage.local.get(EXTENSION_TOKEN_KEY).then(async (stored) => {
+      const token = stored[EXTENSION_TOKEN_KEY];
+      if (token) await authenticatedNotesRequest("/api/auth/session", token, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      }).catch(() => undefined);
+      await chrome.storage.local.remove([EXTENSION_TOKEN_KEY, EXTENSION_DEVICE_KEY, "starmate:sync:enabled"]);
+      await broadcastSyncStatus("local");
+      sendResponse({ disconnected: true });
+    });
+    return true;
+  }
+  if (message?.type === "starmate-delete-cloud-notes") {
+    chrome.storage.local.get(EXTENSION_TOKEN_KEY).then(async (stored) => {
+      const token = stored[EXTENSION_TOKEN_KEY];
+      if (!token) return sendResponse({ deleted: false, error: "auth-required" });
+      const response = await authenticatedNotesRequest("/api/notes?scope=cloud", token, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: message.confirm }),
+      });
+      if (!response.ok) return sendResponse({ deleted: false });
+      await chrome.storage.local.remove([EXTENSION_TOKEN_KEY, EXTENSION_DEVICE_KEY, "starmate:sync:enabled"]);
+      await broadcastSyncStatus("local");
+      sendResponse({ deleted: true, localDataRetained: true });
+    }).catch(() => sendResponse({ deleted: false }));
     return true;
   }
   if (message?.type === "starmate-sync-state") {

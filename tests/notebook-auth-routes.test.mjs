@@ -38,6 +38,7 @@ test("reports local-only capability and supports device revocation", async () =>
   assert.match(route, /localOnly/);
   assert.match(route, /export async function DELETE/);
   assert.match(route, /revokedAt/);
+  assert.match(route, /resolveSyncIdentity/);
 });
 
 test("uses a ten-minute single-use extension connection", async () => {

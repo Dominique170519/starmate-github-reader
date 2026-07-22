@@ -1,6 +1,6 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { extensionDevices } from "@/db/notebook-schema";
-import { getAuthConfiguration, resolveWebSession } from "@/lib/server-auth";
+import { getAuthConfiguration, resolveSyncIdentity, resolveWebSession } from "@/lib/server-auth";
 
 export async function GET(request: Request) {
   const config = getAuthConfiguration();
@@ -26,13 +26,14 @@ export async function GET(request: Request) {
 
 export async function DELETE(request: Request) {
   const config = getAuthConfiguration();
-  const identity = await resolveWebSession(request);
+  const identity = await resolveSyncIdentity(request);
   if (!config.database) return Response.json({ localOnly: true }, { status: 503 });
   if (!identity) return Response.json({ error: "请先登录 GitHub。" }, { status: 401 });
   const body = await request.json() as { deviceId?: string };
-  if (!body.deviceId) return Response.json({ error: "缺少设备标识。" }, { status: 400 });
+  const deviceId = identity.source === "extension" ? identity.deviceId : body.deviceId;
+  if (!deviceId) return Response.json({ error: "缺少设备标识。" }, { status: 400 });
   await config.database.update(extensionDevices).set({ revokedAt: new Date() }).where(and(
-    eq(extensionDevices.id, body.deviceId),
+    eq(extensionDevices.id, deviceId),
     eq(extensionDevices.userId, identity.userId),
   ));
   return Response.json({ revoked: true });

@@ -31,7 +31,7 @@
 - Produces: `NOTE_TYPES`, `createNoteCard(input, now)`, `migrateLegacyNote(input, now)`, `mergeNoteVersions(local, remote)`, `serializeNoteBatch(notes)`, and `matchesNoteFilters(note, filters)`.
 - Consumed by: Web local repository, extension core wrapper, and API validation.
 
-- [ ] **Step 1: Write failing schema, migration, conflict, and filter tests**
+- [x] **Step 1: Write failing schema, migration, conflict, and filter tests**
 
 ```js
 test("creates a freeform note without requiring a quote", () => {
@@ -54,13 +54,13 @@ test("keeps the newest current value and the losing version", () => {
 });
 ```
 
-- [ ] **Step 2: Run the test and verify the missing-module failure**
+- [x] **Step 2: Run the test and verify the missing-module failure**
 
 Run: `node --test tests/notebook.test.mjs`
 
 Expected: FAIL with `ERR_MODULE_NOT_FOUND`.
 
-- [ ] **Step 3: Implement immutable note creation and validation**
+- [x] **Step 3: Implement immutable note creation and validation**
 
 ```js
 export const NOTE_TYPES = ["freeform", "quote", "understanding", "question", "term", "mentor-answer", "review"];
@@ -91,17 +91,17 @@ export function createNoteCard(input, now = new Date().toISOString()) {
 }
 ```
 
-- [ ] **Step 4: Implement migration, merge, batch limits, and filters**
+- [x] **Step 4: Implement migration, merge, batch limits, and filters**
 
 Migration returns `null` for blank legacy content. Merge compares version then ISO `updatedAt`, returns `{ current, history, conflicted }`, and never discards a distinct same-version body. Batch serialization caps one request at 100 notes and rejects malformed items. Filters support repository, document, type, tag, review state, and case-insensitive body/title/quote search.
 
-- [ ] **Step 5: Run focused tests**
+- [x] **Step 5: Run focused tests**
 
 Run: `node --test tests/notebook.test.mjs`
 
 Expected: all notebook domain tests pass.
 
-- [ ] **Step 6: Commit the note domain**
+- [x] **Step 6: Commit the note domain**
 
 ```bash
 git add lib/notebook.mjs lib/notebook.d.mts tests/notebook.test.mjs
@@ -120,17 +120,17 @@ git commit -m "Add versioned notebook card domain"
 - Consumes: note-domain functions.
 - Produces: `createWebNoteRepository(storage)` with `list`, `save`, `remove`, `restoreVersion`, `pendingBatch`, `applyRemoteBatch`, and `migrateLegacyKeys`.
 
-- [ ] **Step 1: Write a failing storage-adapter test**
+- [x] **Step 1: Write a failing storage-adapter test**
 
 Use an in-memory `Storage` fixture and assert that saving a note writes `starmate-notes:v1`, writes a pending operation, and emits a tombstone rather than hard-deleting. Assert migration preserves the old key until the new card is readable.
 
-- [ ] **Step 2: Run the focused test and confirm the repository is missing**
+- [x] **Step 2: Run the focused test and confirm the repository is missing**
 
 Run: `node --test tests/web-note-repository.test.mjs`
 
 Expected: FAIL with module-not-found.
 
-- [ ] **Step 3: Implement a storage-injected repository**
+- [x] **Step 3: Implement a storage-injected repository**
 
 ```ts
 export function createWebNoteRepository(storage: Pick<Storage, "getItem" | "setItem" | "removeItem">) {
@@ -181,17 +181,17 @@ export function createWebNoteRepository(storage: Pick<Storage, "getItem" | "setI
 }
 ```
 
-- [ ] **Step 4: Replace direct Web textarea storage access**
+- [x] **Step 4: Replace direct Web textarea storage access**
 
 Initialize the repository only in the browser. On first load, migrate `starmate-note-${documentName}` keys. Replace `saveNote(value)` with card actions; keep a temporary compatibility reader until the migration marker exists.
 
-- [ ] **Step 5: Run repository and rendered-source tests**
+- [x] **Step 5: Run repository and rendered-source tests**
 
 Run: `node --test tests/web-note-repository.test.mjs tests/rendered-html.test.mjs`
 
 Expected: tests pass and page source no longer writes active notes directly to `starmate-note-*`.
 
-- [ ] **Step 6: Commit local-first Web storage**
+- [x] **Step 6: Commit local-first Web storage**
 
 ```bash
 git add lib/web-note-repository.ts tests/web-note-repository.test.mjs app/page.tsx tests/rendered-html.test.mjs
@@ -210,39 +210,39 @@ git commit -m "Store Web notes as local-first cards"
 - Consumes: `NoteCard[]`, current repository/document context, and callbacks `onCreate`, `onUpdate`, `onDelete`, `onRestore`, `onOpenSource`.
 - Produces: compact reader notes, full “我的笔记” workspace, mobile layout, and source-aware card creation.
 
-- [ ] **Step 1: Add failing UI contract assertions**
+- [x] **Step 1: Add failing UI contract assertions**
 
 Assert the source contains all seven note types, “新建空白笔记”, article/tag/type/search filters, “待复习”, “恢复上一版本”, and sync state text.
 
-- [ ] **Step 2: Run the rendered-source test and verify it fails**
+- [x] **Step 2: Run the rendered-source test and verify it fails**
 
 Run: `node --test tests/rendered-html.test.mjs`
 
 Expected: FAIL for the new notebook controls.
 
-- [ ] **Step 3: Build the focused notebook component**
+- [x] **Step 3: Build the focused notebook component**
 
 Define `NotebookWorkspaceProps` explicitly. Render a compact mode for the reading sidebar and a full mode for the dedicated workspace. Creation defaults to freeform and does not require selected text. When quote, term, or mentor context is supplied, preselect the matching type and retain source location.
 
-- [ ] **Step 4: Integrate capture actions**
+- [x] **Step 4: Integrate capture actions**
 
 Change “加入笔记” to open a small composer with quote preview and editable personal body. Add actions beside term explanations and mentor answers. All actions call one `createContextNote(type, context)` function so source metadata is consistent.
 
-- [ ] **Step 5: Add article-first and cross-article navigation**
+- [x] **Step 5: Add article-first and cross-article navigation**
 
 Reader sidebar filters current document. Dedicated workspace defaults to repository/article groups and exposes tag/type/review/search filters. A source button reopens the correct document and section. Soft-deleted items are hidden except in a short “最近删除” recovery view.
 
-- [ ] **Step 6: Add 360px mobile styles and keyboard focus states**
+- [x] **Step 6: Add 360px mobile styles and keyboard focus states**
 
 At narrow widths use a single-column card list, sticky create button, full-width filter drawer, and non-truncated body preview. Inputs and buttons must retain visible `:focus-visible` outlines.
 
-- [ ] **Step 7: Run tests, lint, and build**
+- [x] **Step 7: Run tests, lint, and build**
 
 Run: `node --test tests/rendered-html.test.mjs && npm run lint && VERCEL=1 npx next build`
 
 Expected: tests pass, lint exits 0, and build succeeds.
 
-- [ ] **Step 8: Commit the Web notebook UI**
+- [x] **Step 8: Commit the Web notebook UI**
 
 ```bash
 git add app/notebook-workspace.tsx app/page.tsx app/globals.css tests/rendered-html.test.mjs
@@ -263,39 +263,39 @@ git commit -m "Add manageable Web notebook cards"
 - Consumes: the same serialized `NoteCard` shape used by Web.
 - Produces: `StarMateStorage.listNotes`, `saveNote`, `removeNote`, `pendingNoteBatch`, `applyRemoteNotes`, and card-based extension UI.
 
-- [ ] **Step 1: Add failing extension-domain tests**
+- [x] **Step 1: Add failing extension-domain tests**
 
 Test freeform note creation, quote capture with section/source URL, legacy `note:${documentId}` migration, tombstone deletion, and a 100-operation pending batch limit.
 
-- [ ] **Step 2: Run extension tests and confirm missing functions**
+- [x] **Step 2: Run extension tests and confirm missing functions**
 
 Run: `node --test tests/extension-core.test.mjs`
 
 Expected: FAIL because note-card helpers do not exist.
 
-- [ ] **Step 3: Port the note schema into the extension core wrapper**
+- [x] **Step 3: Port the note schema into the extension core wrapper**
 
 Keep field names and limits identical to `lib/notebook.mjs`. Expose helpers through `globalThis.StarMateCore`. Do not import ESM from the content script because the manifest currently injects classic scripts.
 
-- [ ] **Step 4: Add note repository methods and safe migration**
+- [x] **Step 4: Add note repository methods and safe migration**
 
 Use keys `notes:v1`, `note-operations:v1`, and `note-migration:v1`. Read the old `note:${documentId}` value, create one “历史笔记” card, verify it is stored, then record the migration marker without deleting the old key in this release.
 
-- [ ] **Step 5: Replace the textarea with cards and composer**
+- [x] **Step 5: Replace the textarea with cards and composer**
 
 The note view starts with “新建笔记”. Current-document cards show type, body preview, tags, review state, edit/delete actions, and “在网页中管理全部笔记”. Selection capture opens the composer rather than appending raw text. Term and reading-detail views can create typed cards.
 
-- [ ] **Step 6: Update privacy copy**
+- [x] **Step 6: Update privacy copy**
 
 State that notes remain local unless the user explicitly connects GitHub and enables sync. Describe how to disconnect a device and retain or delete local notes.
 
-- [ ] **Step 7: Run extension tests and package checks**
+- [x] **Step 7: Run extension tests and package checks**
 
 Run: `node --test tests/extension-core.test.mjs && git diff --check -- extension`
 
 Expected: tests pass and diff check is clean.
 
-- [ ] **Step 8: Commit extension note cards**
+- [x] **Step 8: Commit extension note cards**
 
 ```bash
 git add extension/core.js extension/storage.js extension/content.js extension/styles.css extension/README.md tests/extension-core.test.mjs
@@ -318,45 +318,45 @@ git commit -m "Add manageable extension note cards"
 - Produces database tables `users`, `web_sessions`, `extension_devices`, `extension_connect_codes`, `notes`, `note_versions`, and `sync_changes`.
 - Produces `hashToken`, `signState`, `verifyState`, `newOpaqueToken`, and server database access through Neon HTTP.
 
-- [ ] **Step 1: Add failing auth primitive tests**
+- [x] **Step 1: Add failing auth primitive tests**
 
 Test signed OAuth state expiry and tamper detection, opaque token hashing, and constant-time token comparison. Tests must use injected secrets and timestamps, not environment variables.
 
-- [ ] **Step 2: Run auth tests and confirm the module is missing**
+- [x] **Step 2: Run auth tests and confirm the module is missing**
 
 Run: `node --test tests/auth.test.mjs`
 
 Expected: FAIL with module-not-found.
 
-- [ ] **Step 3: Add Neon and Drizzle dependencies**
+- [x] **Step 3: Add Neon and Drizzle dependencies**
 
 Run: `npm install @neondatabase/serverless@latest`
 
 Expected: `package.json` and lockfile add the Neon driver without removing existing packages.
 
-- [ ] **Step 4: Define exact relational constraints**
+- [x] **Step 4: Define exact relational constraints**
 
 Use GitHub numeric id as a unique external identity. Hash all sessions and extension tokens before storage. Notes have unique `(user_id, note_id)`, integer version, timestamps, and `deleted_at`. Versions preserve the full previous note JSON. Sync changes have a monotonically increasing bigint id used as the pull cursor. Connect codes expire after ten minutes and have a nullable single-use `consumed_at`.
 
-- [ ] **Step 5: Implement configuration-safe database access**
+- [x] **Step 5: Implement configuration-safe database access**
 
 `getDatabase()` returns `null` when `DATABASE_URL` is absent and never attempts a network connection during module import. API routes use this to return explicit local-only capability responses instead of throwing.
 
-- [ ] **Step 6: Implement and test auth primitives**
+- [x] **Step 6: Implement and test auth primitives**
 
 Use Web Crypto HMAC-SHA-256 for signed state and SHA-256 for stored token hashes. Opaque tokens contain at least 32 random bytes. Reject expired or malformed state before JSON parsing is trusted.
 
-- [ ] **Step 7: Document exact environment variables**
+- [x] **Step 7: Document exact environment variables**
 
 Add `DATABASE_URL`, `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET`, `AUTH_SECRET`, and `NEXT_PUBLIC_APP_URL`, with descriptions but no real values.
 
-- [ ] **Step 8: Run tests, lint, and build without secrets**
+- [x] **Step 8: Run tests, lint, and build without secrets**
 
 Run: `node --test tests/auth.test.mjs && npm run lint && VERCEL=1 npx next build`
 
 Expected: auth tests pass and production build succeeds in local-only mode.
 
-- [ ] **Step 9: Commit schema and primitives**
+- [x] **Step 9: Commit schema and primitives**
 
 ```bash
 git add package.json package-lock.json db lib/auth.mjs lib/auth.d.mts tests/auth.test.mjs .env.example
@@ -379,33 +379,33 @@ git commit -m "Add notebook sync database and auth primitives"
 **Interfaces:**
 - Produces: Web cookie `starmate_session`; `GET /api/auth/session`; connect-code `POST`, authenticated approval `PATCH`, and one-time polling `GET`; revocable bearer tokens for extension notes only.
 
-- [ ] **Step 1: Add failing source-contract tests**
+- [x] **Step 1: Add failing source-contract tests**
 
 Assert OAuth routes request only `read:user`, state is verified, cookies are `HttpOnly`, `Secure`, `SameSite=Lax`, extension codes expire and are single-use, and database-missing responses say `localOnly: true`.
 
-- [ ] **Step 2: Implement GitHub OAuth start and callback**
+- [x] **Step 2: Implement GitHub OAuth start and callback**
 
 Start signs `{ returnTo, nonce, expiresAt }`, stores nonce in an HttpOnly cookie, and redirects to GitHub. Callback verifies state and nonce, exchanges the code server-side, calls GitHub `/user`, upserts the user, creates a hashed Web session, clears the nonce cookie, and redirects only to a safe relative path. Never return the GitHub access token to either client and do not persist it after fetching identity.
 
-- [ ] **Step 3: Implement session capability response**
+- [x] **Step 3: Implement session capability response**
 
 `GET /api/auth/session` returns `{ authenticated, user, syncAvailable, localOnly }`. When configuration is missing it returns HTTP 200 with `syncAvailable: false`, allowing the UI to explain local-only mode.
 
-- [ ] **Step 4: Implement polling-based extension connection**
+- [x] **Step 4: Implement polling-based extension connection**
 
 The extension creates a random challenge, POSTs it to create a pending code, and opens `${APP_URL}/?connectExtension=<challenge>`. An authenticated Web user approves it with PATCH. The extension polls GET every two seconds for at most ten minutes. The first successful GET returns an opaque extension token and marks the code consumed; later GET calls return 410. Store only the token hash and device label server-side.
 
-- [ ] **Step 5: Add disconnect and revoke behavior**
+- [x] **Step 5: Add disconnect and revoke behavior**
 
 The session route can revoke a device belonging to the current user. The extension clears its local token only after revoke succeeds or when the user confirms local-only disconnect. Revocation never deletes local notes.
 
-- [ ] **Step 6: Run source tests, lint, and build**
+- [x] **Step 6: Run source tests, lint, and build**
 
 Run: `node --test tests/rendered-html.test.mjs && npm run lint && VERCEL=1 npx next build`
 
 Expected: tests pass, lint exits 0, and build succeeds without live credentials.
 
-- [ ] **Step 7: Commit OAuth and connection flow**
+- [x] **Step 7: Commit OAuth and connection flow**
 
 ```bash
 git add app/api/auth lib/server-auth.ts app/page.tsx extension/background.js extension/content.js tests/rendered-html.test.mjs
@@ -425,39 +425,39 @@ git commit -m "Connect notebook sync with GitHub identity"
 - Consumes: Web session or extension bearer token.
 - Produces: `GET /api/notes?cursor=<id>&limit=100`, `POST /api/notes` batch upserts/tombstones, `PATCH /api/notes` version restoration, and authenticated `DELETE /api/notes?scope=cloud`.
 
-- [ ] **Step 1: Write failing pure sync-decision tests**
+- [x] **Step 1: Write failing pure sync-decision tests**
 
 Cover new note, higher-version update, same-version identical retry, same-version conflicting bodies, tombstone propagation, and another user's note id. Assert the server returns a new cursor and retains the losing conflict version.
 
-- [ ] **Step 2: Run the focused test and confirm missing sync functions**
+- [x] **Step 2: Run the focused test and confirm missing sync functions**
 
 Run: `node --test tests/note-sync.test.mjs`
 
 Expected: FAIL with module-not-found.
 
-- [ ] **Step 3: Implement authenticated identity resolution**
+- [x] **Step 3: Implement authenticated identity resolution**
 
 Prefer a valid Web session cookie; otherwise accept `Authorization: Bearer`. Hash the bearer value before lookup. Return 401 for invalid credentials and 503 `{ localOnly: true }` when database configuration is absent. Never accept a body `userId`.
 
-- [ ] **Step 4: Implement transactional batch push**
+- [x] **Step 4: Implement transactional batch push**
 
 Validate at most 100 operations and domain field limits. For each note, lock or conditionally compare the current version, write the previous JSON to `note_versions` when contents differ, upsert current state, and append one `sync_changes` row. Identical retries are idempotent and do not create new changes.
 
-- [ ] **Step 5: Implement cursor pull and restoration**
+- [x] **Step 5: Implement cursor pull and restoration**
 
 Pull returns changes strictly greater than cursor, ordered ascending, limited to 100, plus `nextCursor` and `hasMore`. Restoration creates a new current version rather than overwriting version history.
 
-- [ ] **Step 6: Implement explicit cloud-data deletion**
+- [x] **Step 6: Implement explicit cloud-data deletion**
 
 `DELETE /api/notes?scope=cloud` requires a fresh authenticated session or valid extension token plus body `{ confirm: "DELETE MY CLOUD NOTES" }`. In one transaction, delete the user's note versions, current notes, and sync changes, then revoke all extension devices. Do not delete browser or extension local storage. Return `{ deleted: true, localDataRetained: true }` and cover cross-user isolation in the sync tests.
 
-- [ ] **Step 7: Run sync tests, lint, and build**
+- [x] **Step 7: Run sync tests, lint, and build**
 
 Run: `node --test tests/notebook.test.mjs tests/note-sync.test.mjs && npm run lint && VERCEL=1 npx next build`
 
 Expected: all tests pass and build succeeds.
 
-- [ ] **Step 8: Commit the sync API**
+- [x] **Step 8: Commit the sync API**
 
 ```bash
 git add app/api/notes/route.ts lib/note-sync-server.ts lib/notebook.mjs lib/notebook.d.mts tests/note-sync.test.mjs
@@ -480,29 +480,29 @@ git commit -m "Synchronize versioned notebook cards"
 - Consumes: local pending queues and `/api/notes`.
 - Produces: debounced push, cursor pull, offline retry, sync status, and manual “立即同步”.
 
-- [ ] **Step 1: Add failing controller tests with mocked fetch**
+- [x] **Step 1: Add failing controller tests with mocked fetch**
 
 Assert local save happens before fetch, failed fetch keeps the queue, successful push removes only acknowledged operations, pull updates the cursor after applying changes, 401 pauses and requests reconnection, and 503 selects local-only mode.
 
-- [ ] **Step 2: Implement the Web controller**
+- [x] **Step 2: Implement the Web controller**
 
 Schedule a push 800ms after local change, run pull on startup/focus/manual refresh, and drain paginated pulls until `hasMore` is false with a ten-page safety cap. Use `online` events for retry. Expose `local`, `waiting`, `syncing`, `synced`, `conflict`, and `auth-required` states.
 
-- [ ] **Step 3: Implement extension background synchronization**
+- [x] **Step 3: Implement extension background synchronization**
 
 Keep bearer tokens only in `chrome.storage.local`. The content script sends sync requests to the service worker; the service worker attaches authorization and calls the App API. Use alarms for periodic retry and message current status back to every connected content script.
 
-- [ ] **Step 4: Add visible opt-in and status controls**
+- [x] **Step 4: Add visible opt-in and status controls**
 
 Both clients default to “仅保存在本设备”. The first connect action shows the synced data categories. After connection show GitHub login, last sync time, “立即同步”, “断开设备”, “删除云端笔记”, and an error explanation without exposing raw server messages. Cloud deletion requires typing the exact confirmation phrase and then returns both clients to local-only mode without clearing local cards.
 
-- [ ] **Step 5: Run controller, extension, lint, and build checks**
+- [x] **Step 5: Run controller, extension, lint, and build checks**
 
 Run: `node --test tests/web-note-repository.test.mjs tests/extension-core.test.mjs && npm run lint && VERCEL=1 npx next build`
 
 Expected: tests pass, lint exits 0, and build succeeds.
 
-- [ ] **Step 6: Commit sync controllers**
+- [x] **Step 6: Commit sync controllers**
 
 ```bash
 git add lib/web-note-sync.ts app/page.tsx app/notebook-workspace.tsx extension/background.js extension/storage.js extension/content.js tests/web-note-repository.test.mjs tests/extension-core.test.mjs
@@ -523,19 +523,19 @@ git commit -m "Sync notebook cards across Web and extension"
 - Consumes: complete note-card and sync implementation.
 - Produces: deploy checklist, privacy explanation, database migration procedure, OAuth setup, updated extension package.
 
-- [ ] **Step 1: Add failing release-source assertions**
+- [x] **Step 1: Add failing release-source assertions**
 
 Assert the manifest permits only the App API origin required for sync, documentation names all environment variables, local-only behavior is explicit, and cloud deletion/device revocation steps exist.
 
-- [ ] **Step 2: Write the operator runbook**
+- [x] **Step 2: Write the operator runbook**
 
 Include exact GitHub OAuth callback URL `${NEXT_PUBLIC_APP_URL}/api/auth/github/callback`, Neon creation and `DATABASE_URL`, migration command, secret generation, Vercel environment configuration, device revocation check, cloud-data deletion check, and rollback behavior. Do not include real secrets.
 
-- [ ] **Step 3: Update the extension manifest and rebuild the zip**
+- [x] **Step 3: Update the extension manifest and rebuild the zip**
 
 Increment the extension version, add only the deployed Vercel origin to optional host permissions if needed, keep the two existing content adapters, and rebuild the archive with the expected eight runtime files plus any new required script. Verify the archive list explicitly.
 
-- [ ] **Step 4: Run complete fresh verification**
+- [x] **Step 4: Run complete fresh verification**
 
 Run: `npm test`
 
@@ -557,11 +557,11 @@ Run: `unzip -l public/starmate-chrome-extension.zip`
 
 Expected: every referenced manifest script exists exactly once and no development files are bundled.
 
-- [ ] **Step 5: Perform configured staging smoke tests**
+- [ ] **Step 5: Perform configured staging smoke tests** *(等待部署方提供 Neon 与 GitHub OAuth 环境变量；不得用未配置的本地模式冒充通过)*
 
 After OAuth and database environment variables exist, verify: Web GitHub login, extension connect, Web-to-extension create/update/delete, extension-to-Web create/update/delete, offline edit then reconnect, conflict history restore, mobile note creation, device revoke, and cloud deletion. Record only pass/fail and test account id; never record note contents or tokens.
 
-- [ ] **Step 6: Commit release artifacts**
+- [x] **Step 6: Commit release artifacts**
 
 ```bash
 git add README.md extension/README.md extension/manifest.json public/starmate-chrome-extension.zip docs/notebook-sync-operations.md tests/rendered-html.test.mjs
