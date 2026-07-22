@@ -222,26 +222,163 @@
 
   const noteView = create("section", "starmate-view");
   noteView.dataset.view = "note";
-  const noteHint = create("p", "starmate-note-hint", "笔记按文档保存在浏览器中，也可以把选中的原文追加进来。");
-  const textarea = create("textarea", "starmate-note");
-  textarea.placeholder = "写下自己的理解、疑问和下一步…";
-  const addSelection = create("button", "starmate-secondary", "＋ 加入当前选中的原文");
+  const noteHint = create("p", "starmate-note-hint", "可以直接新建空白笔记，也可以把原文、自己的理解、疑问或术语保存成独立卡片。");
+  const noteToolbar = create("div", "starmate-note-toolbar");
+  const newNote = create("button", "starmate-primary", "＋ 新建笔记");
+  const addSelection = create("button", "starmate-secondary", "摘录选中原文");
+  newNote.type = "button";
   addSelection.type = "button";
-  const noteStatus = create("small", "", "自动保存");
-  const noteKey = `note:${adapter.documentId}`;
-  globalThis.StarMateStorage.get(noteKey, "").then((value) => { textarea.value = value; });
-  textarea.addEventListener("input", () => globalThis.StarMateStorage.set(noteKey, textarea.value));
+  noteToolbar.append(newNote, addSelection);
+
+  const composer = create("section", "starmate-note-composer");
+  composer.hidden = true;
+  const typeSelect = create("select");
+  [
+    ["freeform", "自由笔记"],
+    ["quote", "原文摘录"],
+    ["understanding", "自己的理解"],
+    ["question", "疑问"],
+    ["term", "术语"],
+    ["mentor-answer", "AI 回答"],
+    ["review", "待复习"],
+  ].forEach(([value, label]) => {
+    const option = create("option", "", label);
+    option.value = value;
+    typeSelect.append(option);
+  });
+  const titleInput = create("input");
+  titleInput.placeholder = "标题（可选）";
+  const quotePreview = create("blockquote", "starmate-note-quote");
+  quotePreview.hidden = true;
+  const bodyInput = create("textarea");
+  bodyInput.placeholder = "不需要先选择原文，直接记下现在的想法…";
+  const tagsInput = create("input");
+  tagsInput.placeholder = "标签，用逗号分隔";
+  const composerActions = create("div");
+  const cancelNote = create("button", "", "取消");
+  const saveNote = create("button", "starmate-primary", "保存笔记卡片");
+  cancelNote.type = "button";
+  saveNote.type = "button";
+  composerActions.append(cancelNote, saveNote);
+  composer.append(typeSelect, titleInput, quotePreview, bodyInput, tagsInput, composerActions);
+
+  const noteStatus = create("small", "starmate-note-status", "仅保存在本设备");
+  const noteList = create("div", "starmate-note-list");
+  const openNotebook = create("a", "starmate-open-notebook", "在网页中管理全部笔记 →");
+  openNotebook.href = `${APP_URL}/?open=notebook`;
+  openNotebook.target = "_blank";
+  openNotebook.rel = "noopener";
+  let editingNote = null;
+  let draftQuote = "";
+
+  function resetComposer() {
+    editingNote = null;
+    draftQuote = "";
+    typeSelect.value = "freeform";
+    titleInput.value = "";
+    bodyInput.value = "";
+    tagsInput.value = "";
+    quotePreview.textContent = "";
+    quotePreview.hidden = true;
+    composer.hidden = true;
+  }
+
+  function openComposer(note = null, quote = "") {
+    editingNote = note;
+    draftQuote = quote || note?.quote || "";
+    typeSelect.value = note?.type || (draftQuote ? "quote" : "freeform");
+    titleInput.value = note?.title || "";
+    bodyInput.value = note?.body || "";
+    tagsInput.value = (note?.tags || []).join("，");
+    quotePreview.textContent = draftQuote ? `“${draftQuote}”` : "";
+    quotePreview.hidden = !draftQuote;
+    composer.hidden = false;
+    bodyInput.focus();
+  }
+
+  async function renderNotes() {
+    const notes = await globalThis.StarMateStorage.listNotes({ documentId: adapter.documentId });
+    noteList.replaceChildren();
+    if (!notes.length) {
+      noteList.append(create("p", "starmate-empty", "这篇文章还没有笔记。可以直接新建，不必先选择原文。"));
+      return;
+    }
+    const labels = { freeform: "自由笔记", quote: "原文摘录", understanding: "自己的理解", question: "疑问", term: "术语", "mentor-answer": "AI 回答", review: "待复习" };
+    for (const note of notes) {
+      const card = create("article", `starmate-note-card${note.pinned ? " pinned" : ""}`);
+      const cardHeader = create("header");
+      cardHeader.append(create("span", "", labels[note.type] || "自由笔记"), create("small", "", new Date(note.updatedAt).toLocaleDateString("zh-CN")));
+      if (note.title) card.append(create("strong", "", note.title));
+      if (note.quote) card.append(create("blockquote", "", `“${note.quote}”`));
+      card.append(cardHeader, create("p", "", note.body || "这张卡片只保存了原文摘录。"));
+      const tags = create("div", "starmate-note-tags");
+      (note.tags || []).forEach((tag) => tags.append(create("span", "", `#${tag}`)));
+      const actions = create("footer");
+      const pin = create("button", note.pinned ? "active" : "", note.pinned ? "已置顶" : "置顶");
+      const review = create("button", note.reviewNeeded ? "active" : "", "待复习");
+      const edit = create("button", "", "编辑");
+      const remove = create("button", "danger", "删除");
+      [pin, review, edit, remove].forEach((button) => { button.type = "button"; actions.append(button); });
+      pin.addEventListener("click", async () => {
+        await globalThis.StarMateStorage.saveNote({ ...note, pinned: !note.pinned, version: note.version + 1, updatedAt: new Date().toISOString() });
+        renderNotes();
+      });
+      review.addEventListener("click", async () => {
+        await globalThis.StarMateStorage.saveNote({ ...note, reviewNeeded: !note.reviewNeeded, version: note.version + 1, updatedAt: new Date().toISOString() });
+        renderNotes();
+      });
+      edit.addEventListener("click", () => openComposer(note));
+      remove.addEventListener("click", async () => {
+        await globalThis.StarMateStorage.removeNote(note.id);
+        renderNotes();
+      });
+      card.append(tags, actions);
+      noteList.append(card);
+    }
+  }
+
+  newNote.addEventListener("click", () => openComposer());
   addSelection.addEventListener("click", () => {
     const selection = window.getSelection()?.toString().replace(/\s+/g, " ").trim();
     if (!selection) {
       noteStatus.textContent = "请先在原文中选中一段文字";
       return;
     }
-    textarea.value = `${textarea.value}${textarea.value ? "\n\n" : ""}【原文】${selection}\n【我的理解】`;
-    globalThis.StarMateStorage.set(noteKey, textarea.value);
-    noteStatus.textContent = "已加入原文";
+    openComposer(null, selection.slice(0, 8000));
   });
-  noteView.append(noteHint, textarea, addSelection, noteStatus);
+  cancelNote.addEventListener("click", resetComposer);
+  saveNote.addEventListener("click", async () => {
+    if (!bodyInput.value.trim() && !draftQuote) {
+      noteStatus.textContent = "请先写一点内容";
+      return;
+    }
+    const section = currentSection();
+    const now = new Date().toISOString();
+    const note = globalThis.StarMateCore.createNoteCard({
+      ...editingNote,
+      repositoryId: article.projectId,
+      documentId: adapter.documentId,
+      sectionId: section?.id || "",
+      sourceUrl: section?.url || article.url,
+      type: typeSelect.value,
+      title: titleInput.value,
+      body: bodyInput.value,
+      quote: draftQuote,
+      tags: tagsInput.value.split(/[，,]/).map((tag) => tag.trim()).filter(Boolean),
+      reviewNeeded: typeSelect.value === "review" || Boolean(editingNote?.reviewNeeded),
+      version: editingNote ? editingNote.version + 1 : 1,
+      updatedAt: now,
+    }, now);
+    await globalThis.StarMateStorage.saveNote(note);
+    resetComposer();
+    noteStatus.textContent = "已保存到本设备";
+    renderNotes();
+  });
+  globalThis.StarMateStorage.migrateLegacyNote(adapter.documentId, {
+    repositoryId: article.projectId,
+    sourceUrl: article.url,
+  }).then(renderNotes);
+  noteView.append(noteHint, noteToolbar, composer, noteStatus, noteList, openNotebook);
 
   const termCard = create("section", "starmate-term-card");
   termCard.setAttribute("role", "dialog");
@@ -488,7 +625,10 @@
       }
     }
     const currentGraph = await globalThis.StarMateStorage.getGraph();
-    const nextGraph = previous
+    const hasCurrentDocumentGraph = currentGraph.nodes.some(
+      (node) => node.id === `document:${adapter.documentId}`,
+    );
+    const nextGraph = previous && hasCurrentDocumentGraph
       ? globalThis.StarMateCore.applyGraphDiff(currentGraph, next, diff, termEvidence)
       : globalThis.StarMateCore.linkSharedConcepts(
         globalThis.StarMateCore.mergeGraphs(
@@ -601,7 +741,7 @@
     const section = currentSection();
     state = {
       ...state,
-      progress: forceComplete ? 100 : Math.max(state.completed ? 100 : 0, metrics.percent),
+      progress: forceComplete ? 100 : Math.max(state.completed ? 100 : state.progress || 0, metrics.percent),
       lastSectionId: section?.id || state.lastSectionId,
     };
     progress.setAttribute("aria-valuenow", String(state.progress));

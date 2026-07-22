@@ -363,6 +363,69 @@
     );
   }
 
+  const noteTypes = Object.freeze([
+    "freeform",
+    "quote",
+    "understanding",
+    "question",
+    "term",
+    "mentor-answer",
+    "review",
+  ]);
+
+  function createNoteCard(input, now = new Date().toISOString()) {
+    if (!input?.repositoryId || !input?.documentId) throw new TypeError("repositoryId and documentId are required");
+    const type = noteTypes.includes(input.type) ? input.type : "freeform";
+    const tags = [...new Set((Array.isArray(input.tags) ? input.tags : [])
+      .map((tag) => String(tag).trim())
+      .filter(Boolean))].slice(0, 20);
+    return {
+      id: String(input.id || `note-${fingerprint(`${now}:${Math.random()}`)}`),
+      repositoryId: String(input.repositoryId),
+      documentId: String(input.documentId),
+      sectionId: String(input.sectionId || ""),
+      sourceUrl: String(input.sourceUrl || ""),
+      anchor: String(input.anchor || ""),
+      type,
+      title: String(input.title || "").slice(0, 120),
+      body: String(input.body || "").slice(0, 20000),
+      quote: String(input.quote || "").slice(0, 8000),
+      tags,
+      pinned: Boolean(input.pinned),
+      resolved: Boolean(input.resolved),
+      reviewNeeded: Boolean(input.reviewNeeded),
+      createdAt: String(input.createdAt || now),
+      updatedAt: String(input.updatedAt || now),
+      version: Math.max(1, Number(input.version || 1)),
+      deletedAt: input.deletedAt ? String(input.deletedAt) : null,
+    };
+  }
+
+  function migrateLegacyNote({ body, repositoryId, documentId, sourceUrl = "" }, now = new Date().toISOString()) {
+    const value = String(body || "").trim();
+    if (!value) return null;
+    return createNoteCard({
+      id: `legacy-${fingerprint(`${repositoryId}:${documentId}`)}`,
+      repositoryId,
+      documentId,
+      sourceUrl,
+      type: "freeform",
+      title: "历史笔记",
+      body: value,
+      tags: ["旧笔记"],
+    }, now);
+  }
+
+  function matchesNoteFilters(note, filters = {}) {
+    if (!filters.includeDeleted && note.deletedAt) return false;
+    if (filters.repositoryId && note.repositoryId !== filters.repositoryId) return false;
+    if (filters.documentId && note.documentId !== filters.documentId) return false;
+    if (filters.type && note.type !== filters.type) return false;
+    if (filters.tag && !(note.tags || []).includes(filters.tag)) return false;
+    if (typeof filters.reviewNeeded === "boolean" && note.reviewNeeded !== filters.reviewNeeded) return false;
+    return true;
+  }
+
   globalThis.StarMateCore = {
     glossary,
     normalizeConcept,
@@ -376,5 +439,9 @@
     mergeGraphs,
     linkSharedConcepts,
     applyGraphDiff,
+    noteTypes,
+    createNoteCard,
+    migrateLegacyNote,
+    matchesNoteFilters,
   };
 })();

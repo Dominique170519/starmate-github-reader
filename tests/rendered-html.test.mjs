@@ -154,19 +154,35 @@ test("keeps repository learning usable on Vercel without Cloudflare D1", async (
 });
 
 test("ships a no-model Chrome reading companion", async () => {
-  const [page, manifest, content] = await Promise.all([
+  const [page, manifest, content, adapters, storage, background, core, styles] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../extension/manifest.json", import.meta.url), "utf8"),
     readFile(new URL("../extension/content.js", import.meta.url), "utf8"),
+    readFile(new URL("../extension/adapters.js", import.meta.url), "utf8"),
+    readFile(new URL("../extension/storage.js", import.meta.url), "utf8"),
+    readFile(new URL("../extension/background.js", import.meta.url), "utf8"),
+    readFile(new URL("../extension/core.js", import.meta.url), "utf8"),
+    readFile(new URL("../extension/styles.css", import.meta.url), "utf8"),
   ]);
 
   assert.match(page, /Chrome 伴读侧栏实验版/);
   assert.match(page, /starmate-chrome-extension\.zip/);
   assert.match(manifest, /"manifest_version": 3/);
+  assert.match(manifest, /optional_host_permissions/);
+  assert.match(manifest, /background\.js/);
   assert.match(content, /文章地图/);
   assert.match(content, /原文搜索/);
   assert.match(content, /加入星伴读知识库/);
-  assert.match(content, /chrome\.storage\.local/);
+  assert.match(content, /starmate-reading-progress/);
+  assert.match(content, /简单解释/);
+  assert.match(content, /生活类比/);
+  assert.match(content, /在这段话里的作用/);
+  assert.match(content, /waitForArticle/);
+  assert.match(adapters, /article\.markdown-section/);
+  assert.match(storage, /chrome\.storage\.local/);
+  assert.match(background, /chrome\.alarms/);
+  assert.match(core, /buildDocumentGraph/);
+  assert.match(styles, /starmate-reading-progress/);
 });
 
 test("builds a dynamic evidence-backed graph from every saved package", async () => {
@@ -176,4 +192,57 @@ test("builds a dynamic evidence-backed graph from every saved package", async ()
   assert.match(page, /starmate-last-library-check/);
   assert.match(page, /查看原文证据/);
   assert.doesNotMatch(page, /knowledgePackages\.length >= 2/);
+});
+
+test("exposes a rate-limited verified practice case API", async () => {
+  const route = await readFile("app/api/practice-cases/route.ts", "utf8");
+  assert.match(route, /export async function GET/);
+  assert.match(route, /GITHUB_TOKEN/);
+  assert.match(route, /status:\s*"limited"/);
+  assert.match(route, /normalizeExternalCase/);
+  assert.match(route, /Cache-Control/);
+});
+
+test("renders verified practice cases and honest empty states", async () => {
+  const page = await readFile("app/page.tsx", "utf8");
+  assert.match(page, /overviewMode === "cases"/);
+  assert.match(page, /实践案例/);
+  assert.match(page, /官方实践/);
+  assert.match(page, /明确使用/);
+  assert.match(page, /暂无可信案例/);
+  assert.match(page, /开始复刻/);
+  assert.match(page, /starmate-practice-tasks:v1/);
+  assert.doesNotMatch(page, /猜你喜欢/);
+});
+
+test("offers manageable note cards instead of a quote-only textarea", async () => {
+  const page = await readFile("app/page.tsx", "utf8");
+  const workspace = await readFile("app/notebook-workspace.tsx", "utf8");
+  assert.match(page, /view === "notebook"/);
+  assert.match(page, /createWebNoteRepository/);
+  assert.match(page, /migrateLegacyKeys/);
+  assert.match(workspace, /新建空白笔记/);
+  assert.match(workspace, /自由笔记/);
+  assert.match(workspace, /原文摘录/);
+  assert.match(workspace, /自己的理解/);
+  assert.match(workspace, /疑问/);
+  assert.match(workspace, /术语/);
+  assert.match(workspace, /AI 回答/);
+  assert.match(workspace, /待复习/);
+  assert.match(workspace, /按文章/);
+  assert.match(workspace, /主题标签/);
+  assert.match(workspace, /搜索笔记/);
+  assert.match(workspace, /恢复上一版本/);
+});
+
+test("offers the same note-card actions inside the extension", async () => {
+  const content = await readFile("extension/content.js", "utf8");
+  assert.match(content, /新建笔记/);
+  assert.match(content, /自由笔记/);
+  assert.match(content, /自己的理解/);
+  assert.match(content, /待复习/);
+  assert.match(content, /编辑/);
+  assert.match(content, /删除/);
+  assert.match(content, /在网页中管理全部笔记/);
+  assert.match(content, /migrateLegacyNote/);
 });

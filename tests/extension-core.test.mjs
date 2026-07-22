@@ -11,6 +11,32 @@ async function loadCore() {
   return sandbox.StarMateCore;
 }
 
+async function loadExtensionStorage(initial = {}) {
+  const values = new Map(Object.entries(initial));
+  const sandbox = {
+    chrome: {
+      storage: {
+        local: {
+          async get(key) {
+            if (key === null) return Object.fromEntries(values);
+            if (typeof key === "string") return values.has(key) ? { [key]: values.get(key) } : {};
+            return {};
+          },
+          async set(entries) {
+            Object.entries(entries).forEach(([key, value]) => values.set(key, value));
+          },
+        },
+      },
+    },
+  };
+  sandbox.globalThis = sandbox;
+  for (const path of ["../extension/core.js", "../extension/storage.js"]) {
+    const source = await readFile(new URL(path, import.meta.url), "utf8");
+    vm.runInNewContext(source, sandbox);
+  }
+  return { core: sandbox.StarMateCore, storage: sandbox.StarMateStorage, values };
+}
+
 test("finds only known first-occurrence terms", async () => {
   const core = await loadCore();
   const terms = core.findKnownTerms("Agent 使用 API 调用工具，API 返回 JSON。", 6);
@@ -80,6 +106,49 @@ test("limits annotations and refuses unknown explanations", async () => {
   assert.equal(found.length, 6);
   assert.equal(core.explainTerm("quantum-wombat"), null);
   assert.equal(core.explainTerm("APIs").term, "API");
+});
+
+test("creates extension note cards without requiring a quote", async () => {
+  const core = await loadCore();
+  const note = core.createNoteCard({
+    id: "note-1",
+    repositoryId: "acme/source",
+    documentId: "README.md",
+    body: "自己的理解",
+  }, "2026-07-22T10:00:00.000Z");
+  assert.equal(note.type, "freeform");
+  assert.equal(note.quote, "");
+  assert.equal(note.version, 1);
+});
+
+test("migrates old extension text only after storing a card", async () => {
+  const prefix = "starmate:reader:";
+  const { storage, values } = await loadExtensionStorage({ [`${prefix}note:doc-1`]: "旧插件笔记" });
+  const migrated = await storage.migrateLegacyNote("doc-1", {
+    repositoryId: "acme/source",
+    sourceUrl: "https://github.com/acme/source",
+  });
+
+  assert.equal(migrated.title, "历史笔记");
+  assert.equal((await storage.listNotes({ documentId: "doc-1" })).length, 1);
+  assert.equal(values.get(`${prefix}note:doc-1`), "旧插件笔记");
+  assert.equal(values.get(`${prefix}note-migration:doc-1`), "complete");
+});
+
+test("soft-deletes extension notes and keeps one pending operation", async () => {
+  const { core, storage } = await loadExtensionStorage();
+  const note = core.createNoteCard({
+    id: "note-delete",
+    repositoryId: "acme/source",
+    documentId: "doc-1",
+    body: "稍后删除",
+  }, "2026-07-22T10:00:00.000Z");
+  await storage.saveNote(note);
+  await storage.removeNote(note.id, "2026-07-22T11:00:00.000Z");
+
+  assert.equal((await storage.listNotes()).length, 0);
+  assert.equal((await storage.listNotes({ includeDeleted: true }))[0].version, 2);
+  assert.equal((await storage.pendingNoteBatch())[0].kind, "delete");
 });
 
 test("uses commit and document as a stable update id", async () => {

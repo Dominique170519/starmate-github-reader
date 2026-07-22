@@ -2,11 +2,23 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { EMBEDDED_READMES } from "./embedded-readmes";
+import { NotebookWorkspace } from "./notebook-workspace";
+import type { NoteDraft } from "./notebook-workspace";
 import { buildKnowledgeGraph } from "@/lib/knowledge-graph.mjs";
+import { createNoteCard } from "@/lib/notebook.mjs";
+import type { NoteCard } from "@/lib/notebook.mjs";
+import { buildReproductionTask, extractOfficialCases } from "@/lib/practice-cases.mjs";
+import type { PracticeCase, PracticeTask } from "@/lib/practice-cases.mjs";
 import type { RepositoryLearningPackage } from "@/lib/repository-learning";
+import { createWebNoteRepository } from "@/lib/web-note-repository.mjs";
 
-type View = "home" | "beginner" | "overview" | "reader" | "review";
-type OverviewMode = "documents" | "topic" | "path" | "graph";
+type View = "home" | "beginner" | "overview" | "reader" | "notebook" | "review";
+type OverviewMode = "documents" | "topic" | "path" | "graph" | "cases";
+
+type CaseLoadState = {
+  status: "loading" | "verified" | "empty" | "limited" | "error";
+  cases: PracticeCase[];
+};
 
 type Lesson = {
   id: number;
@@ -104,7 +116,16 @@ type PackageChangeSummary = {
   previousSha?: string;
 };
 
-type LibraryPackage = RepositoryLearningPackage & { changeSummary?: PackageChangeSummary };
+type PackageChangeRecord = PackageChangeSummary & {
+  sourceSha: string;
+  sourceUpdatedAt: string;
+  checkedAt: string;
+};
+
+type LibraryPackage = RepositoryLearningPackage & {
+  changeSummary?: PackageChangeSummary;
+  changeHistory?: PackageChangeRecord[];
+};
 
 type KnowledgeGraphNode = {
   id: string;
@@ -678,6 +699,23 @@ function compareLearningPackages(previous: LibraryPackage | undefined, next: Rep
   return { status: "updated", added: added.slice(0, 10), changed: changed.slice(0, 10), removed: removed.slice(0, 10), previousSha: previous.sourceSha };
 }
 
+function packageWithChangeHistory(
+  previous: LibraryPackage | undefined,
+  learningPackage: RepositoryLearningPackage,
+): LibraryPackage {
+  const changeSummary = compareLearningPackages(previous, learningPackage);
+  const previousHistory = previous?.changeHistory || [];
+  const changeHistory = changeSummary.status === "unchanged"
+    ? previousHistory
+    : [{
+      ...changeSummary,
+      sourceSha: learningPackage.sourceSha,
+      sourceUpdatedAt: learningPackage.sourceUpdatedAt,
+      checkedAt: new Date().toISOString(),
+    }, ...previousHistory].slice(0, 20);
+  return { ...learningPackage, changeSummary, changeHistory };
+}
+
 function createLibraryId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return `library_${crypto.randomUUID().replace(/-/g, "")}`;
   return `library_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 18)}`;
@@ -700,6 +738,21 @@ function writeDeviceLibrary(libraryId: string, packages: LibraryPackage[]) {
   } catch {
     // A full browser storage area should not interrupt reading or updating.
   }
+}
+
+function readPracticeTasks(): Record<string, PracticeTask> {
+  if (typeof window === "undefined") return {};
+  try {
+    const saved = JSON.parse(window.localStorage.getItem("starmate-practice-tasks:v1") || "{}");
+    return saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
+  } catch {
+    return {};
+  }
+}
+
+function readDeviceNotes(): NoteCard[] {
+  if (typeof window === "undefined") return [];
+  return createWebNoteRepository(window.localStorage).list();
 }
 
 export default function Home() {
@@ -725,11 +778,16 @@ export default function Home() {
   const [repoOutlines, setRepoOutlines] = useState<Record<number, string[]>>({});
   const [outlineLoading, setOutlineLoading] = useState<number | null>(null);
   const [overviewMode, setOverviewMode] = useState<OverviewMode>("documents");
+  const [practiceCaseStates, setPracticeCaseStates] = useState<Record<string, CaseLoadState>>({});
+  const [practiceTasks, setPracticeTasks] = useState<Record<string, PracticeTask>>(readPracticeTasks);
+  const [activePracticeTaskId, setActivePracticeTaskId] = useState<string | null>(null);
   const [expandedDocument, setExpandedDocument] = useState<string | null>(null);
   const [activeDocumentName, setActiveDocumentName] = useState("claude-code-reverse");
   const [readerMode, setReaderMode] = useState<"original" | "guide">("original");
   const [companionTab, setCompanionTab] = useState<"mentor" | "notes">("mentor");
-  const [noteText, setNoteText] = useState("");
+  const [notes, setNotes] = useState<NoteCard[]>(readDeviceNotes);
+  const [noteCapture, setNoteCapture] = useState<NoteDraft>({});
+  const [noteComposerVersion, setNoteComposerVersion] = useState(0);
   const [mentorQuestion, setMentorQuestion] = useState("");
   const [mentorLoading, setMentorLoading] = useState(false);
   const [mentorStatus, setMentorStatus] = useState<MentorStatus>("checking");
@@ -738,6 +796,7 @@ export default function Home() {
   const [mentorMessages, setMentorMessages] = useState<MentorMessage[]>([{ id: 1, role: "teacher", title: "开始伴读", content: "我会跟随你当前阅读的文章和章节。选中一段原文，或直接告诉我哪里没看懂。" }]);
   const mentorMessageId = useRef(2);
   const dailyCheckRunning = useRef(false);
+  const practiceCaseRequests = useRef(new Set<string>());
   const [mobileReaderSurface, setMobileReaderSurface] = useState<"document" | "mentor" | "notes">("document");
   const [activeSourceSection, setActiveSourceSection] = useState(0);
   const [beginnerTrackId, setBeginnerTrackId] = useState<BeginnerTrack["id"]>("how");
@@ -760,6 +819,30 @@ export default function Home() {
     setStarredRepos(JSON.parse(window.localStorage.getItem("starmate-starred-repos") || "[]"));
     /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
+
+  useEffect(() => {
+    if (overviewMode !== "cases" || !knowledgePackages.length) return;
+    let cancelled = false;
+    for (const learningPackage of knowledgePackages) {
+      const key = `${learningPackage.id}:${learningPackage.sourceSha}`;
+      if (practiceCaseRequests.current.has(key)) continue;
+      practiceCaseRequests.current.add(key);
+      setPracticeCaseStates((current) => ({ ...current, [key]: { status: "loading", cases: [] } }));
+      fetch(`/api/practice-cases?repository=${encodeURIComponent(learningPackage.fullName)}`)
+        .then(async (response) => {
+          const result = (await response.json()) as { cases?: PracticeCase[]; status?: CaseLoadState["status"]; error?: string };
+          if (!response.ok) throw new Error(result.error || "外部案例搜索失败");
+          if (!cancelled) setPracticeCaseStates((current) => ({
+            ...current,
+            [key]: { status: result.status || "empty", cases: result.cases || [] },
+          }));
+        })
+        .catch(() => {
+          if (!cancelled) setPracticeCaseStates((current) => ({ ...current, [key]: { status: "error", cases: [] } }));
+        });
+    }
+    return () => { cancelled = true; };
+  }, [overviewMode, knowledgePackages]);
 
   useEffect(() => {
     const existing = window.localStorage.getItem("starmate-library-id");
@@ -953,6 +1036,19 @@ export default function Home() {
     });
     return [...groups.entries()].sort((a, b) => b[1].length - a[1].length).slice(0, 6).map(([name, repos]) => ({ name, repos, note: `由你的收藏自动聚合，新增相关仓库后会继续扩展。` }));
   }, [knowledgePackages, selectedRepos]);
+  const practiceCaseGroups = useMemo(() => knowledgePackages.map((learningPackage) => {
+    const key = `${learningPackage.id}:${learningPackage.sourceSha}`;
+    const external = practiceCaseStates[key] || { status: "loading", cases: [] };
+    return {
+      learningPackage,
+      status: external.status,
+      cases: [...extractOfficialCases(learningPackage), ...external.cases],
+    };
+  }), [knowledgePackages, practiceCaseStates]);
+  const activePracticeCase = useMemo(() => practiceCaseGroups
+    .flatMap((group) => group.cases)
+    .find((practiceCase) => `reproduce:${practiceCase.id}` === activePracticeTaskId), [activePracticeTaskId, practiceCaseGroups]);
+  const activePracticeTask = activePracticeTaskId ? practiceTasks[activePracticeTaskId] : undefined;
   const activeKnowledgePackage = knowledgePackages.find((learningPackage) => learningPackage.fullName === activeDocumentName);
   const activeDocument = sourceDocuments.find((document) => document.name === activeDocumentName) || (activeKnowledgePackage ? {
     name: activeKnowledgePackage.fullName,
@@ -977,11 +1073,23 @@ export default function Home() {
   const readmeHeadings = useMemo(() => markdownBlocks.filter((block) => block.type === "heading" && (block.level || 1) <= 2), [markdownBlocks]);
   const currentSectionTitle = readmeHeadings[activeSourceSection]?.text || "文章开头";
   const currentGuide = useMemo(() => buildSectionGuide(activeDocument.name, markdownBlocks, readmeHeadings, activeSourceSection), [activeDocument.name, markdownBlocks, readmeHeadings, activeSourceSection]);
+  const activeRepositoryId = activeKnowledgePackage?.fullName || `${activeDocument.owner}/${activeDocument.name}`;
+  const activeDocumentId = activeDocument.name;
+  const currentNoteText = useMemo(() => notes
+    .filter((note) => note.repositoryId === activeRepositoryId && note.documentId === activeDocumentId && !note.deletedAt)
+    .map((note) => [note.title, note.body, note.quote].filter(Boolean).join("\n"))
+    .join("\n\n"), [activeDocumentId, activeRepositoryId, notes]);
 
   useEffect(() => {
-    /* eslint-disable-next-line react-hooks/set-state-in-effect -- restore device-local notebook content when switching documents */
-    setNoteText(window.localStorage.getItem(`starmate-note-${activeDocument.name}`) || "");
-  }, [activeDocument.name]);
+    const repository = createWebNoteRepository(window.localStorage);
+    repository.migrateLegacyKeys([{
+      key: `starmate-note-${activeDocument.name}`,
+      repositoryId: activeRepositoryId,
+      documentId: activeDocumentId,
+    }]);
+    /* eslint-disable-next-line react-hooks/set-state-in-effect -- migration synchronizes the component with the durable local notebook */
+    setNotes(repository.list());
+  }, [activeDocument.name, activeDocumentId, activeRepositoryId]);
 
   const repoName = useMemo(() => {
     try {
@@ -1016,7 +1124,7 @@ export default function Home() {
       if (!response.ok || !result.package) throw new Error(result.error || "学习包生成失败");
       const learningPackage = result.package;
       const previous = knowledgePackages.find((item) => item.id === learningPackage.id);
-      const next: LibraryPackage = { ...learningPackage, changeSummary: compareLearningPackages(previous, learningPackage) };
+      const next = packageWithChangeHistory(previous, learningPackage);
       updateKnowledgePackages((current) => [next, ...current.filter((item) => item.id !== next.id)]);
       setLibraryStorage(result.storage || "device");
       if (!quiet) setImportMessage(`已生成 ${learningPackage.fullName} 的学习包：${learningPackage.sections.length} 个章节、${learningPackage.concepts.length} 个概念。`);
@@ -1054,7 +1162,7 @@ export default function Home() {
       });
       const result = (await response.json()) as { package?: RepositoryLearningPackage; error?: string; storage?: "cloud" | "device" };
       if (!response.ok || !result.package) throw new Error(result.error || "更新检查失败");
-      const next: LibraryPackage = { ...result.package, changeSummary: compareLearningPackages(learningPackage, result.package) };
+      const next = packageWithChangeHistory(learningPackage, result.package);
       updateKnowledgePackages((current) => current.map((item) => item.id === next.id ? next : item));
       setLibraryStorage(result.storage || "device");
       if (!quiet) setImportMessage(next.changeSummary?.status === "unchanged" ? `${next.fullName} 暂无原文变化。` : `${next.fullName} 已更新，并生成了章节变化记录。`);
@@ -1231,6 +1339,32 @@ export default function Home() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  function startPracticeTask(practiceCase: PracticeCase) {
+    const task = practiceTasks[`reproduce:${practiceCase.id}`] || buildReproductionTask(practiceCase);
+    const next = { ...practiceTasks, [task.id]: task };
+    setPracticeTasks(next);
+    setActivePracticeTaskId(task.id);
+    window.localStorage.setItem("starmate-practice-tasks:v1", JSON.stringify(next));
+  }
+
+  function togglePracticeStep(index: number) {
+    if (!activePracticeTask) return;
+    const completed = activePracticeTask.completed.includes(index)
+      ? activePracticeTask.completed.filter((item) => item !== index)
+      : [...activePracticeTask.completed, index].sort((left, right) => left - right);
+    const updated = { ...activePracticeTask, completed };
+    const next = { ...practiceTasks, [updated.id]: updated };
+    setPracticeTasks(next);
+    window.localStorage.setItem("starmate-practice-tasks:v1", JSON.stringify(next));
+  }
+
+  function writePracticeNote() {
+    if (!activePracticeCase) return;
+    openDocument(activePracticeCase.targetRepository);
+    setCompanionTab("notes");
+    setMobileReaderSurface("notes");
+  }
+
   function goToSourceSection(index: number) {
     const target = Math.max(0, Math.min(index, readmeHeadings.length - 1));
     setActiveSourceSection(target);
@@ -1246,9 +1380,58 @@ export default function Home() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  function saveNote(value: string) {
-    setNoteText(value);
-    window.localStorage.setItem(`starmate-note-${activeDocument.name}`, value);
+  function refreshNotebook() {
+    setNotes(createWebNoteRepository(window.localStorage).list());
+  }
+
+  function createNotebookNote(draft: NoteDraft) {
+    const note = createNoteCard({
+      repositoryId: activeRepositoryId,
+      documentId: activeDocumentId,
+      sectionId: draft.sectionId || String(activeSourceSection),
+      sourceUrl: draft.sourceUrl || activeDocument.url,
+      anchor: draft.anchor || `source-section-${readmeHeadings[activeSourceSection]?.section ?? activeSourceSection}`,
+      type: draft.type,
+      title: draft.title,
+      body: draft.body,
+      quote: draft.quote,
+      tags: draft.tags,
+      reviewNeeded: draft.type === "review",
+    });
+    createWebNoteRepository(window.localStorage).save(note);
+    setNoteCapture({});
+    refreshNotebook();
+  }
+
+  function updateNotebookNote(note: NoteCard) {
+    const now = new Date().toISOString();
+    createWebNoteRepository(window.localStorage).save({ ...note, updatedAt: now, version: note.version + 1 });
+    refreshNotebook();
+  }
+
+  function deleteNotebookNote(noteId: string) {
+    createWebNoteRepository(window.localStorage).remove(noteId);
+    refreshNotebook();
+  }
+
+  function restoreNotebookNote(noteId: string) {
+    createWebNoteRepository(window.localStorage).restoreVersion(noteId);
+    refreshNotebook();
+  }
+
+  function prepareNoteCapture(draft: NoteDraft) {
+    setNoteCapture(draft);
+    setNoteComposerVersion((version) => version + 1);
+    setCompanionTab("notes");
+    setMobileReaderSurface("notes");
+  }
+
+  function openNoteSource(note: NoteCard) {
+    const target = readerDocuments.find((document) => document.key === note.repositoryId || document.key === note.documentId)
+      || readerDocuments.find((document) => note.repositoryId.endsWith(`/${document.key}`));
+    openDocument(target?.key || activeDocument.name);
+    const section = Number(note.sectionId);
+    if (Number.isFinite(section)) window.setTimeout(() => goToSourceSection(section), 0);
   }
 
   function captureSelection() {
@@ -1261,10 +1444,14 @@ export default function Home() {
 
   function addToNotes(text = selectedText) {
     if (!text.trim()) return;
-    const entry = `\n\n【${currentSectionTitle}】\n原文：${text.trim()}\n我的理解：`;
-    saveNote(`${noteText}${entry}`.trimStart());
-    setCompanionTab("notes");
-    setMobileReaderSurface("notes");
+    prepareNoteCapture({
+      type: "quote",
+      title: currentSectionTitle,
+      quote: text.trim(),
+      tags: [activeDocument.name],
+      sectionId: String(activeSourceSection),
+      sourceUrl: activeDocument.url,
+    });
   }
 
   async function askMentor(question = mentorQuestion, action: "explain" | "example" | "guide" | "check" | "ask" = "ask") {
@@ -1305,7 +1492,7 @@ export default function Home() {
             keyPoints: currentGuide.keyPoints,
           },
           selectedText,
-          note: prompt.includes("笔记") ? noteText : "",
+          note: prompt.includes("笔记") ? currentNoteText : "",
           history: recentHistory,
         }),
       });
@@ -1345,11 +1532,30 @@ export default function Home() {
     return <>
       <div className="mentor-heading"><span className="mentor-avatar">✦</span><div><strong>伴读老师</strong><small className={`mentor-model-status ${mentorStatus}`}>{mentorLoading ? "gpt-5.4-mini · 正在生成" : mentorStatus === "ready" ? "gpt-5.4-mini · 已连接" : mentorStatus === "unconfigured" ? "gpt-5.4-mini · 等待密钥" : mentorStatus === "checking" ? "正在检查模型连接" : "模型连接暂时异常"}</small></div></div>
       <div className="mentor-context"><span>当前上下文 · 实时跟随</span><strong>{activeDocument.name}</strong><small>第 {activeSourceSection + 1} 节 · {currentSectionTitle}</small>{selectedText && <blockquote>“{selectedText.slice(0, 120)}{selectedText.length > 120 ? "…" : ""}”</blockquote>}<div className="mentor-context-actions"><button onClick={() => { setReaderMode("original"); setMobileReaderSurface("document"); goToSourceSection(activeSourceSection); }}>定位当前原文</button>{selectedText && <button onClick={() => addToNotes()}>+ 加入笔记</button>}</div></div>
-      <div className="mentor-conversation" aria-live="polite">{mentorMessages.map((message) => <article className={`mentor-bubble ${message.role} ${message.pending ? "pending" : ""} ${message.error ? "error" : ""}`} key={message.id}>{message.title && <strong>{message.title}</strong>}{message.quote && <blockquote>“{message.quote.slice(0, 110)}{message.quote.length > 110 ? "…" : ""}”</blockquote>}<p>{message.content}</p>{message.source && <button className="mentor-source-link" onClick={() => { setReaderMode("original"); setMobileReaderSurface("document"); goToSourceSection(activeSourceSection); }}>依据：{message.source} · 定位原文 ↗</button>}{message.check && <div className="mentor-check"><b>{message.check.question}</b>{message.check.options.map((option, index) => <button className={mentorCheckChoice === index ? (index === message.check?.correct ? "correct" : "wrong") : ""} key={option} onClick={() => setMentorCheckChoice(index)}>{String.fromCharCode(65 + index)}. {option}</button>)}{mentorCheckChoice !== null && <em>{mentorCheckChoice === message.check.correct ? `回答正确：${message.check.feedback}` : "再想一步：回到这一节的核心问题，区分原文证据与无关细节。"}</em>}</div>}</article>)}</div>
+      <div className="mentor-conversation" aria-live="polite">{mentorMessages.map((message) => <article className={`mentor-bubble ${message.role} ${message.pending ? "pending" : ""} ${message.error ? "error" : ""}`} key={message.id}>{message.title && <strong>{message.title}</strong>}{message.quote && <blockquote>“{message.quote.slice(0, 110)}{message.quote.length > 110 ? "…" : ""}”</blockquote>}<p>{message.content}</p>{message.source && <button className="mentor-source-link" onClick={() => { setReaderMode("original"); setMobileReaderSurface("document"); goToSourceSection(activeSourceSection); }}>依据：{message.source} · 定位原文 ↗</button>}{message.role === "teacher" && !message.pending && <button className="mentor-save-note" onClick={() => prepareNoteCapture({ type: "mentor-answer", title: message.title || "AI 伴读回答", body: message.content, quote: message.quote || selectedText, tags: [currentSectionTitle] })}>＋ 保存为 AI 回答笔记</button>}{message.check && <div className="mentor-check"><b>{message.check.question}</b>{message.check.options.map((option, index) => <button className={mentorCheckChoice === index ? (index === message.check?.correct ? "correct" : "wrong") : ""} key={option} onClick={() => setMentorCheckChoice(index)}>{String.fromCharCode(65 + index)}. {option}</button>)}{mentorCheckChoice !== null && <em>{mentorCheckChoice === message.check.correct ? `回答正确：${message.check.feedback}` : "再想一步：回到这一节的核心问题，区分原文证据与无关细节。"}</em>}</div>}</article>)}</div>
       <div className="mentor-actions"><button disabled={mentorLoading} onClick={() => askMentor("解释当前内容", "explain")}><span>译</span>小白解释</button><button disabled={mentorLoading} onClick={() => askMentor("通过提问引导我", "guide")}><span>问</span>引导思考</button><button disabled={mentorLoading} onClick={() => askMentor("举一个容易理解的例子", "example")}><span>例</span>举个例子</button><button disabled={mentorLoading} onClick={() => askMentor("检查我是否理解", "check")}><span>测</span>理解检查</button></div>
       <div className="mentor-input"><input disabled={mentorLoading} aria-label="向伴读老师提问" value={mentorQuestion} onChange={(event) => setMentorQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !mentorLoading) askMentor(); }} placeholder={mentorLoading ? "GPT 正在回答…" : "围绕当前章节提问…"} /><button disabled={mentorLoading} aria-label="发送问题" onClick={() => askMentor()}>{mentorLoading ? "…" : "↑"}</button></div>
       <p className="grounding-note">回答绑定当前仓库与章节，并可一键定位原文；API Key 始终留在服务端</p>
     </>;
+  }
+
+  function renderNotebookWorkspace(compact: boolean) {
+    return <NotebookWorkspace
+      key={`${compact ? "compact" : "full"}:${activeDocumentId}:${noteComposerVersion}`}
+      notes={notes}
+      compact={compact}
+      repositoryId={activeRepositoryId}
+      documentId={activeDocumentId}
+      initialDraft={noteCapture}
+      syncLabel="仅保存在本设备 · 开启 GitHub 同步后可跨端使用"
+      historyCount={(noteId) => createWebNoteRepository(window.localStorage).history(noteId).length}
+      onCreate={createNotebookNote}
+      onUpdate={updateNotebookNote}
+      onDelete={deleteNotebookNote}
+      onRestore={restoreNotebookNote}
+      onOpenSource={openNoteSource}
+      onOpenLibrary={compact ? () => { setView("notebook"); window.scrollTo({ top: 0, behavior: "smooth" }); } : undefined}
+    />;
   }
 
   async function loadRepoOutline(repo: StarredRepo) {
@@ -1386,6 +1592,7 @@ export default function Home() {
           <button className={view === "beginner" ? "active" : ""} onClick={() => setView("beginner")}>无痛入门</button>
           <button className={view === "overview" ? "active" : ""} onClick={() => setView("overview")}>全局地图</button>
           <button className={view === "reader" ? "active" : ""} onClick={() => setView("reader")}>伴读</button>
+          <button className={view === "notebook" ? "active" : ""} onClick={() => setView("notebook")}>我的笔记</button>
           <button className={view === "review" ? "active" : ""} onClick={() => setView("review")}>复习</button>
         </nav>
         <div className="streak"><span>连续学习</span><strong>3 天</strong></div>
@@ -1619,6 +1826,7 @@ export default function Home() {
             <button className={overviewMode === "topic" ? "active" : ""} onClick={() => setOverviewMode("topic")}><span>02</span><strong>按主题学习</strong><small>AI 综合多篇资料</small></button>
             <button className={overviewMode === "path" ? "active" : ""} onClick={() => setOverviewMode("path")}><span>03</span><strong>仓库学习路径</strong><small>从 README 走到实践</small></button>
             <button className={overviewMode === "graph" ? "active" : ""} onClick={() => setOverviewMode("graph")}><span>04</span><strong>探索知识图谱</strong><small>查看文档与概念关系</small></button>
+            <button className={overviewMode === "cases" ? "active" : ""} onClick={() => setOverviewMode("cases")}><span>05</span><strong>实践案例</strong><small>看看项目怎样被用起来</small></button>
           </nav>
 
           {overviewMode === "documents" && (
@@ -1714,6 +1922,30 @@ export default function Home() {
               {conceptGroups.length > 0 && <section className="concept-dictionary"><div className="mode-heading"><div><p className="overline">合并后的概念词典</p><h2>同一个概念，只保留一个入口</h2></div><p>概念会记录出现在哪些仓库，避免知识库随着收藏增长而产生大量重复卡片。</p></div><div>{conceptGroups.slice(0, 16).map((concept) => <article key={concept.name}><span>{concept.repositories.length} 个仓库</span><strong>{concept.name}</strong><p>{concept.plain}</p><small>{concept.repositories.slice(0, 3).join(" · ")}</small></article>)}</div></section>}
             </section>
           )}
+
+          {overviewMode === "cases" && (
+            <section className="mode-panel practice-cases-panel">
+              <div className="mode-heading"><div><p className="overline">有证据的实践案例</p><h2>理论读累了，去看看它怎样真正工作</h2></div><p>只展示仓库作者提供的官方实践，或 README 明确引用当前项目的外部仓库。没有证据，就不会推荐。</p></div>
+              {!practiceCaseGroups.length && <div className="case-empty"><span>◎</span><div><strong>暂无可信案例</strong><p>先把一个 GitHub 仓库加入学习库。系统会检查官方示例目录和明确的外部引用。</p></div></div>}
+              <div className="practice-case-groups">
+                {practiceCaseGroups.map((group) => (
+                  <article className="practice-case-group" key={`${group.learningPackage.id}:${group.learningPackage.sourceSha}`}>
+                    <header><div><span>{group.cases.length} 个可信入口</span><h3>{group.learningPackage.fullName}</h3></div><a href={group.learningPackage.url} target="_blank" rel="noreferrer">查看项目 ↗</a></header>
+                    {group.cases.length > 0 ? <div className="practice-case-grid">{group.cases.map((practiceCase) => (
+                      <section className="practice-case-card" key={practiceCase.id}>
+                        <div className="case-meta"><span className={practiceCase.kind}>{practiceCase.kind === "official" ? "官方实践" : "明确使用"}</span><small>约 {practiceCase.estimatedMinutes} 分钟</small></div>
+                        <h4>{practiceCase.title}</h4><p>{practiceCase.summary}</p>
+                        <div className="case-entry"><span>建议先看</span><strong>{practiceCase.recommendedEntry}</strong></div>
+                        <div className="case-actions"><a href={practiceCase.evidence.url} target="_blank" rel="noreferrer">{practiceCase.evidence.label} ↗</a><button onClick={() => startPracticeTask(practiceCase)}>开始复刻</button></div>
+                        <small className="case-verified">证据检查：{new Date(practiceCase.verifiedAt).toLocaleDateString("zh-CN")}</small>
+                      </section>
+                    ))}</div> : group.status === "loading" ? <div className="case-empty compact"><span>…</span><div><strong>正在检查可信案例</strong><p>先检查官方目录，再验证 GitHub README 的明确引用。</p></div></div> : <div className="case-empty compact"><span>◎</span><div><strong>暂无可信案例</strong><p>{group.status === "limited" ? "GitHub 搜索次数暂时用完；官方目录仍已完成检查。" : group.status === "error" ? "外部搜索暂时失败；不会用旧结果冒充最新案例。" : "目前没有找到官方实践或明确引用。"}</p><div><a href={`${group.learningPackage.url}/tree/main/examples`} target="_blank" rel="noreferrer">查看官方目录 ↗</a><a href={`https://github.com/search?q=${encodeURIComponent(`\"${group.learningPackage.fullName}\" in:readme`)}&type=repositories`} target="_blank" rel="noreferrer">前往精确搜索 ↗</a></div></div></div>}
+                  </article>
+                ))}
+              </div>
+              {activePracticeTask && activePracticeCase && <aside className="practice-task-panel"><header><div><span>App 内复刻任务</span><h3>{activePracticeCase.title}</h3></div><button aria-label="关闭复刻任务" onClick={() => setActivePracticeTaskId(null)}>×</button></header><ol>{activePracticeTask.steps.map((step, index) => <li className={activePracticeTask.completed.includes(index) ? "done" : ""} key={step}><button onClick={() => togglePracticeStep(index)}><span>{activePracticeTask.completed.includes(index) ? "✓" : index + 1}</span><strong>{step}</strong></button>{index === 2 && <button className="write-practice-note" onClick={writePracticeNote}>写一张笔记 →</button>}</li>)}</ol></aside>}
+            </section>
+          )}
         </div>
       )}
 
@@ -1764,13 +1996,21 @@ export default function Home() {
               </>}
             </article>
 
-            {mobileReaderSurface !== "document" && <section className="mobile-companion-panel">{mobileReaderSurface === "mentor" ? renderMentorWorkspace() : <><p className="overline">我的笔记</p><h2>{activeDocument.name}</h2><textarea value={noteText} onChange={(event) => saveNote(event.target.value)} placeholder="记下自己的理解、疑问和例子…" /><small>已自动保存在这台设备</small></>}</section>}
+            {mobileReaderSurface !== "document" && <section className="mobile-companion-panel">{mobileReaderSurface === "mentor" ? renderMentorWorkspace() : renderNotebookWorkspace(true)}</section>}
           </div>
 
           <aside className="mentor-panel">
             <div className="companion-tabs"><button className={companionTab === "mentor" ? "active" : ""} onClick={() => setCompanionTab("mentor")}>AI 伴读</button><button className={companionTab === "notes" ? "active" : ""} onClick={() => setCompanionTab("notes")}>我的笔记</button></div>
-            {companionTab === "mentor" ? renderMentorWorkspace() : <div className="notes-panel"><p className="overline">文档笔记</p><h3>{activeDocument.name}</h3><textarea value={noteText} onChange={(event) => saveNote(event.target.value)} placeholder="记下自己的理解、疑问和例子…" /><small>内容已自动保存在这台设备</small><button onClick={() => askMentor("帮我把当前笔记整理成要点")}>✦ 请 AI 帮我整理</button></div>}
+            {companionTab === "mentor" ? renderMentorWorkspace() : renderNotebookWorkspace(true)}
           </aside>
+        </div>
+      )}
+
+      {view === "notebook" && (
+        <div className="page notebook-page">
+          <button className="back-link" onClick={() => setView("reader")}>← 返回伴读</button>
+          <header className="notebook-page-hero"><div><p className="kicker">文章是入口，标签连接知识</p><h1>我的笔记，不再挤在<em>一个文本框里。</em></h1></div><p>按文章回到阅读现场，也可以用主题标签、笔记类型和待复习状态跨文章整理。</p></header>
+          {renderNotebookWorkspace(false)}
         </div>
       )}
 
@@ -1806,6 +2046,7 @@ export default function Home() {
         <button className={view === "home" ? "active" : ""} onClick={() => setView("home")}><span>⌂</span>学习台</button>
         <button className={view === "beginner" ? "active" : ""} onClick={() => setView("beginner")}><span>♡</span>入门</button>
         <button className={view === "reader" ? "active" : ""} onClick={() => setView("reader")}><span>▤</span>伴读</button>
+        <button className={view === "notebook" ? "active" : ""} onClick={() => setView("notebook")}><span>✎</span>笔记</button>
         <button className={view === "review" ? "active" : ""} onClick={() => setView("review")}><span>↻</span>复习</button>
       </nav>
     </main>

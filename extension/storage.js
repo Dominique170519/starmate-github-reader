@@ -109,6 +109,84 @@
     return set("graph", { ...graph, documents });
   }
 
+  async function listNotes(filters = {}) {
+    const notes = await get("notes:v1", []);
+    return notes
+      .filter((note) => globalThis.StarMateCore.matchesNoteFilters(note, filters))
+      .sort((left, right) => Number(right.pinned) - Number(left.pinned) || right.updatedAt.localeCompare(left.updatedAt));
+  }
+
+  async function queueNoteOperation(operation) {
+    const operations = await get("note-operations:v1", []);
+    const next = [operation, ...operations.filter((item) => item.note?.id !== operation.note.id)].slice(0, 500);
+    return set("note-operations:v1", next);
+  }
+
+  async function saveNote(note) {
+    const notes = await get("notes:v1", []);
+    const next = [note, ...notes.filter((item) => item.id !== note.id)].slice(0, 2000);
+    await set("notes:v1", next);
+    await queueNoteOperation({ kind: note.deletedAt ? "delete" : "upsert", note });
+    return note;
+  }
+
+  async function removeNote(noteId, now = new Date().toISOString()) {
+    const notes = await get("notes:v1", []);
+    const current = notes.find((note) => note.id === noteId);
+    if (!current) return null;
+    return saveNote({
+      ...current,
+      deletedAt: now,
+      updatedAt: now,
+      version: current.version + 1,
+    });
+  }
+
+  async function pendingNoteBatch() {
+    return (await get("note-operations:v1", [])).slice(0, 100);
+  }
+
+  async function acknowledgeNotes(noteIds = []) {
+    const ids = new Set(noteIds);
+    const operations = await get("note-operations:v1", []);
+    return set("note-operations:v1", operations.filter((operation) => !ids.has(operation.note?.id)));
+  }
+
+  async function applyRemoteNotes(remoteNotes = []) {
+    const localNotes = await get("notes:v1", []);
+    const byId = new Map(localNotes.map((note) => [note.id, note]));
+    for (const incoming of remoteNotes) {
+      const current = byId.get(incoming.id);
+      if (!current || incoming.version > current.version || (incoming.version === current.version && incoming.updatedAt > current.updatedAt)) {
+        byId.set(incoming.id, incoming);
+      }
+    }
+    const notes = [...byId.values()].slice(0, 2000);
+    await set("notes:v1", notes);
+    return notes;
+  }
+
+  async function migrateLegacyNote(documentId, metadata = {}) {
+    if (await get(`note-migration:${documentId}`, "") === "complete") {
+      return (await listNotes({ documentId }))[0] || null;
+    }
+    const body = await get(`note:${documentId}`, "");
+    const note = globalThis.StarMateCore.migrateLegacyNote({
+      body,
+      documentId,
+      repositoryId: metadata.repositoryId || documentId.split(":")[0] || documentId,
+      sourceUrl: metadata.sourceUrl || "",
+    });
+    if (!note) {
+      await set(`note-migration:${documentId}`, "complete");
+      return null;
+    }
+    await saveNote(note);
+    const stored = (await listNotes({ documentId })).some((item) => item.id === note.id);
+    if (stored) await set(`note-migration:${documentId}`, "complete");
+    return note;
+  }
+
   globalThis.StarMateStorage = {
     get,
     set,
@@ -121,5 +199,12 @@
     saveUpdateEvent,
     getGraph,
     saveGraph,
+    listNotes,
+    saveNote,
+    removeNote,
+    pendingNoteBatch,
+    acknowledgeNotes,
+    applyRemoteNotes,
+    migrateLegacyNote,
   };
 })();
