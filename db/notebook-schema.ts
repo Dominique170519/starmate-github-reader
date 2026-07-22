@@ -65,7 +65,7 @@ export const notes = pgTable("notes", {
 ]);
 
 export const noteVersions = pgTable("note_versions", {
-  id: bigserial("id", { mode: "number" }).primaryKey(),
+  id: bigserial("id", { mode: "bigint" }).primaryKey(),
   userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   noteId: text("note_id").notNull(),
   version: integer("version").notNull(),
@@ -74,7 +74,7 @@ export const noteVersions = pgTable("note_versions", {
 }, (table) => [index("note_versions_user_note_idx").on(table.userId, table.noteId)]);
 
 export const syncChanges = pgTable("sync_changes", {
-  id: bigserial("id", { mode: "number" }).primaryKey(),
+  id: bigserial("id", { mode: "bigint" }).primaryKey(),
   userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   noteId: text("note_id").notNull(),
   operation: text("operation").notNull(),
